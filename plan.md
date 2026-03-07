@@ -241,9 +241,12 @@ BCD decoding: 8-byte PC-1500 packed BCD; sign and exponent nibbles per Sharp PC-
 
 ## Implementation Sequence
 
-1. **Project scaffold**: `pom.xml`, `logging.properties`, stub `SharpDataExchange.java`
-2. **CLI layer**: enums (`PocketPcDevice`, `OutputFormat`, `DataType`), `CliArgs` record, `CliParser`; write `CliParserTest`
-3. **Headers + detection**: port `SerialHeader`/`Ce158Header`/`Pc1600Header` (resolve PC-1600 Reserve/Variables TODO); implement `ContentDetector`; write header and detector tests
+1. ✅ **Project scaffold**: `pom.xml`, `logging.properties`, stub `SharpDataExchange.java`
+2. ✅ **CLI layer**: enums (`PocketPcDevice`, `OutputFormat`, `DataType`), `CliArgs` record, `CliParser`; write `CliParserTest` — 31 tests passing
+3. ✅ **Headers + detection**: port `SerialHeader`/`Ce158Header`/`Pc1600Header`; implement `ContentDetector`; write header and detector tests — 27 tests passing
+   - PC-1600 `getHeader()` bug fixed: now uses correct 3-byte little-endian encoding (original used 2-byte big-endian)
+   - PC-1600 end marker `0x000F` added to `getHeader()` output
+   - PC-1600 RESERVE/VARIABLES type bytes remain unknown; constructor throws `UnsupportedOperationException` with a clear message pending hardware research
 4. **Conversion layer**: `AsciiBasicTokenizer`, `ReserveAreaConverter`, `VariablesConverter`; write conversion tests including round-trip
 5. **Serial layer**: port `ByteProcessor`, `Watchdog`, `SerialPortWrapper`; implement `DataReceiver`, `DataSender`; write `WatchdogTest`
 6. **Wire together**: implement `FileHandler` (no clipboard), complete `SharpDataExchange.main()` orchestration; manual integration test on hardware
@@ -257,8 +260,8 @@ BCD decoding: 8-byte PC-1500 packed BCD; sign and exponent nibbles per Sharp PC-
 | `SharpCommunicator/src/.../serialhandler/SerialPortWrapper.java` | Port: auto-detection, baud, flow control |
 | `SharpCommunicator/src/.../serialhandler/SerialToDeviceSender.java` | Port: timing-sensitive transmission |
 | `SharpCommunicator/src/.../serialhandler/ReadFromPocketPc.java` | Port: watchdog-based receive |
-| `SharpCommunicator/src/.../binaryfile/Ce158Header.java` | Port: type-char switch for detection |
-| `SharpCommunicator/src/.../binaryfile/Pc1600Header.java` | Port: resolve Reserve/Variables type TODO |
+| `SharpCommunicator/src/.../binaryfile/Ce158Header.java` | ✅ Ported to `header/Ce158Header.java` |
+| `SharpCommunicator/src/.../binaryfile/Pc1600Header.java` | ✅ Ported to `header/Pc1600Header.java`; encoding fixed; RESERVE/VARIABLES TODO remains open |
 | `SharpCommunicator/src/.../SharpCommunicator.java` | Reference for two-step flow |
 | `SharpBasicShared/.../antlr/visitor/BinaryEncodingVisitor.java` | Inverse of BinaryBasicDetokenizer |
 | `SharpBasicShared/.../core/keyword/KeywordRegistry.java` | Token code lookup for both directions |
@@ -267,9 +270,9 @@ BCD decoding: 8-byte PC-1500 packed BCD; sign and exponent nibbles per Sharp PC-
 
 ## Verification
 
-- **Unit**: `CliParserTest` — all flag combinations, error cases
-- **Unit**: `ContentDetectorTest` — CE-158 headers of each type, ASCII heuristics, SDAR/SDAV
-- **Unit**: `Ce158HeaderTest` / `Pc1600HeaderTest` — round-trip: construct -> serialize -> parse -> compare
+- ✅ **Unit**: `CliParserTest` — all flag combinations, error cases (31 tests)
+- ✅ **Unit**: `ContentDetectorTest` — CE-158 headers of each type, ASCII heuristics, SDAR/SDAV (14 tests)
+- ✅ **Unit**: `Ce158HeaderTest` / `Pc1600HeaderTest` — round-trip: construct -> serialize -> parse -> compare (14 + 13 tests)
 - **Unit**: `WatchdogTest` — timeout fires; `reset()` postpones it
 - **Unit**: `BinaryBasicDetokenizerTest` — in SharpBasicShared (see `task-detokenizer.md`); SharpDataExchange relies on library test coverage
 - **Unit**: `ReserveAreaConverterTest` — binary->SDAR text; SDAR text->binary; length honored; comments/blanks ignored
