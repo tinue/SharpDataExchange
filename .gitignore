@@ -1,0 +1,7 @@
+task.md
+target/
+*.class
+*.jar
+.idea/
+*.iml
+.DS_Store
