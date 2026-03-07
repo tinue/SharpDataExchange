@@ -163,7 +163,7 @@ The exact ordering matters because the Pocket Computer does not buffer data. The
 When receiving data from the Pocket Computer, SharpDataExchange always saves it as ASCII by default. The recommended way to send data from the Pocket Computer is the standard binary save command (`CSAVE` / `SAVE "COM1:"`): it is faster than ASCII transfer and SharpDataExchange de-tokenizes the result automatically.
 
 - A program saved with `CSAVE` or `SAVE "COM1:"` (binary) is de-tokenized and written as readable ASCII BASIC.
-- Reserve Area data is written in a readable hex format (SDAR).
+- Reserve Area data is written in a readable structured format (SDAR) showing the three layers, labels, and key definitions with BASIC keywords de-tokenized.
 - Variable data is written in a readable key-value format (SDAV).
 
 The ASCII save variants (`CSAVEa`, `SAVE "COM1:",A`) still work and produce the same result on the PC, but are slower and are not normally needed.
@@ -434,18 +434,47 @@ Use `--format binary` with `get` to preserve the original binary file exactly as
 
 ### Reserve Area (SDAR)
 
-A human-readable hex format for Reserve Area data:
+A human-readable format for the PC-1500 Reserve Area. The Reserve Area stores three layers of definitions for the six reserve keys. Each layer has a label and six key slots; key content may include BASIC keywords shown in full readable form.
 
 ```
 ; SDAR:1.0 pc1500
-; Length: 48
 ; Filename: MYAPP
-3A 00 FF 1A 00 00 00 00  00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+
+[layer 1]
+label: ABS FOR SIN COS TAN ATN
+key 1: ABS(
+key 2: FOR
+key 3: SIN(
+key 4: COS(
+key 5: TAN(
+key 6: ATN(
+
+[layer 2]
+label: IO
+key 1: LOAD "
+key 2: SAVE "
+key 3: NEW
+key 4:
+key 5:
+key 6:
+
+[layer 3]
+label:
+key 1:
+key 2:
+key 3:
+key 4:
+key 5:
+key 6:
 ```
 
-Lines beginning with `;` are comments and are ignored when reading the file back. Bytes are grouped in rows of 16, with a gap after byte 8 for readability.
+**Layer label:** Free-form text chosen by the user; typically a compact string that identifies what the keys on that layer do, such as `ABS FOR SIN COS TAN ATN`. The label is not validated against the key contents — keeping them aligned is up to the user.
+
+**Key content:** BASIC keywords are written in their full names (`PRINT`, `FOR`, `SIN(`, etc.) and are re-tokenized automatically when the file is loaded back. Empty keys are left blank after the colon. All six keys must be present in each layer, even if empty.
+
+Lines beginning with `;` are comments and are ignored when reading the file back. Blank lines between sections are also ignored.
+
+> **Size limit:** The total content across all layers must fit within the hardware Reserve Area. SharpDataExchange checks this when converting from SDAR to binary and reports an error if the limit is exceeded.
 
 ### Variables (SDAV)
 
@@ -499,7 +528,7 @@ On the PC-1500: `SETDEV U1,CI,CO` then `CSAVE"MYAPP",A`
 java -jar SharpDataExchange.jar get reserve.sdar
 ```
 
-The Reserve Area is saved in SDAR hex format for inspection and editing.
+The Reserve Area is saved in SDAR format — a structured, human-readable file showing the three layers, labels, and key definitions. BASIC keywords are de-tokenized to full names so the file can be read and edited directly.
 
 ### Restore the Reserve Area to the PC-1500
 

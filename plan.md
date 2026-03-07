@@ -199,22 +199,107 @@ BinaryBasicDetokenizer detokenizer = new BinaryBasicDetokenizer(registry);
 List<String> asciiLines = detokenizer.detokenize(payloadBytes);
 ```
 
+### Binary format: Reserve Area (CE-158 payload, type 'A')
+
+Source: Sharp PC-1500 Technical Reference Manual §5-3-6.
+
+The payload is **189 bytes**, starting at memory address 4008H (the 8-byte ROM status
+block at 4000H–4007H is machine-specific configuration and is not included):
+
+| Payload offset | Memory address | Size | Content |
+|---|---|---|---|
+| 0x000 | 4008H | 26 bytes | Key symbol (label) for layer I — null-padded 7-bit CP437 string |
+| 0x01A | 4022H | 26 bytes | Key symbol (label) for layer II |
+| 0x034 | 403CH | 26 bytes | Key symbol (label) for layer III |
+| 0x04E | 4056H | 111 bytes | Key contents pool |
+
+**Key symbol format**: 26 bytes; the label string in 7-bit CP437, null-terminated and
+padded with 00H to fill the 26 bytes. Example: `" PRT INP GTO GSB RET "` followed by
+five 00H bytes.
+
+**Key contents pool** (111 bytes): a flat stream of entries, one final 00H terminator:
+
+```
+[key_code] [content_bytes...] [key_code] [content_bytes...] ... [00H]
+```
+
+- **Key code byte** identifies which layer and key slot the entry belongs to:
+
+  | Key | Layer I | Layer II | Layer III |
+  |---|---|---|---|
+  | F1 | 01H | 11H | 09H |
+  | F2 | 02H | 12H | 0AH |
+  | F3 | 03H | 13H | 0BH |
+  | F4 | 04H | 14H | 0CH |
+  | F5 | 05H | 15H | 0DH |
+  | F6 | 06H | 16H | 0EH |
+
+- **Content bytes**: BASIC keywords stored as standard PC-1500 BASIC tokens (two bytes:
+  F0H+xx or F1H+xx); plain characters stored as 7-bit CP437 codes (20H–7FH). Example:
+  `GOTO` = `F1 92`; `@` = `40H`; `GOTO@` = `F1 92 40`.
+- **Parsing**: content bytes are always ≥ 20H or start with F0H/F1H (all > 16H); key
+  codes are always in 01H–16H. No ambiguity — the parser can reliably distinguish them.
+- **Entry order**: registration order (not sorted by key code). On re-registration, the
+  old entry is deleted and the new one appended.
+- **00H** terminates the entire pool. Unused bytes in the 111-byte pool are 00H.
+- **Size limit**: total pool content (all entries + final 00H) must not exceed 111 bytes.
+  `ReserveAreaConverter` must check this when converting SDAR→binary.
+
+> **Note**: the payload start address (4008H vs 4000H) is to be confirmed by a real
+> SharpCommunicator binary capture. The ROM status bytes at 4000H–4007H must not be
+> exposed in the SDAR ASCII format and must not be restored on write-back.
+
 ### ASCII format: Reserve Area (SDAR)
+
+The PC-1500 Reserve Area stores three layers of key definitions for the six reserve keys.
+Each layer has a label (typically a short string that identifies the keys on that layer,
+e.g. `ABS FOR SIN COS TAN ATN`) and six key slots. Key content may include BASIC keywords,
+which are de-tokenized when writing and re-tokenized when reading back.
 
 ```
 ; SDAR:1.0 pc1500
-; Length: 48
 ; Filename: MYAPP
-3A 00 FF 1A 00 00 00 00  00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
-00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+
+[layer 1]
+label: ABS FOR SIN COS TAN ATN
+key 1: ABS(
+key 2: FOR
+key 3: SIN(
+key 4: COS(
+key 5: TAN(
+key 6: ATN(
+
+[layer 2]
+label: IO
+key 1: LOAD "
+key 2: SAVE "
+key 3: NEW
+key 4:
+key 5:
+key 6:
+
+[layer 3]
+label:
+key 1:
+key 2:
+key 3:
+key 4:
+key 5:
+key 6:
 ```
 
 - `; SDAR:1.0 <device>` — first line, signals type for detector
-- `; Length: <n>` — byte count of actual data
-- `; Filename: <name>` — from CE-158 header (16 chars max)
-- Data: 16 hex bytes per line, space-separated, 2-space gap after byte 8
-- Comment (`;`) and blank lines ignored by parser
+- `; Filename: <name>` — optional; carries CE-158 filename for round-trip fidelity
+- `[layer N]` — section header; exactly three layers (1, 2, 3), in order
+- `label:` — one per layer; free-form text the user chooses to identify the keys;
+  typically something like `ABS FOR SIN COS TAN ATN`; empty is allowed;
+  taken as-is from the file (alignment with keys is the user's responsibility)
+- `key 1:` … `key 6:` — all six must be present in each layer, even if empty;
+  value is the de-tokenized key content; BASIC keywords appear as full keyword names
+- BASIC keywords de-tokenized on write (binary→SDAR), re-tokenized on read (SDAR→binary)
+- Comment (`;`) and blank lines ignored anywhere in the file
+- **Size limit**: the `ReserveAreaConverter` must verify that the total tokenized binary
+  pool (all entries + 00H terminator) fits within 111 bytes; reject with a clear error if not
 
 ### ASCII format: Variables (SDAV)
 
@@ -231,11 +316,70 @@ D$=""
 - `; SDAV:1.0 <device>` — first line, signals type for detector
 - `; Count: <n>` — number of variables (for validation)
 - Variables: `NAME=<decimal>` or `NAME$="<string>"`
-- Numeric: BCD-decoded to decimal (up to 12 significant digits; scientific notation for large/small)
+- Numeric: decoded to decimal (up to 10 significant digits; scientific notation for large/small)
 - String: double-quoted; internal quotes escaped as `\"`; control chars as `\xHH`
 - Variable name type: trailing `$` = string, else numeric
 
-BCD decoding: 8-byte PC-1500 packed BCD; sign and exponent nibbles per Sharp PC-1500 Technical Reference Manual variable storage format.
+### Binary format: numeric variable value (8 bytes, §5-3-1 / §5-3-2)
+
+Two possible encodings — distinguished by byte 4:
+
+**Decimal (floating point)** — byte 4 ≠ B2H:
+
+| Byte | Content |
+|---|---|
+| 0 | Exponent — signed 8-bit two's complement, range −99 to +99 |
+| 1 | Mantissa sign — 00H = positive, 80H = negative |
+| 2–6 | Mantissa — 5 bytes packed BCD, 10 digits; implicit decimal point after first digit |
+| 7 | Always 00H |
+
+Value = sign × (BCD mantissa as 1.xxxxxxxxx) × 10^exponent
+
+Examples: `03 00 15 00 00 00 00 00` = 1500; `FD 00 12 34 56 78 90 00` = 0.001234567890;
+`08 80 12 34 00 00 00 00` = −1.234×10⁸
+
+**Binary integer** — byte 4 == B2H:
+
+| Byte | Content |
+|---|---|
+| 0–3 | Don't care |
+| 4 | B2H (type marker) |
+| 5–6 | 16-bit two's complement integer, big-endian, range −32768 to +32767 |
+| 7 | Don't care |
+
+Examples: `xx xx xx xx B2 05 DC xx` = 1500; `xx xx xx xx B2 FF FB xx` = −5
+
+**String variable — memory layout only (§5-3-3):**
+
+The D0H / pointer / string-buffer structure described in §5-3-3 is the **in-RAM layout**,
+not the tape format. Key points for context:
+
+- Single-letter strings (A$–Z$) have **fixed length and fixed memory address** — no pointer needed.
+- Longer names (AA$, etc.) and DIM'd string arrays likely use the D0H pointer record.
+- In-memory strings are therefore stored either directly at a fixed location (A$–Z$) or via
+  a pointer to a separate string buffer (AA$, DIM arrays).
+
+**CE-158 tape format for variables:**
+
+The tape payload is a **sequential list of variable values**, with no variable names and no
+memory addresses. Behaviour confirmed by hardware convention:
+
+- `CSAVE"x",V,A,C` saves variables A, B, C as 3 consecutive records.
+- `CLOAD"x",V,E` loads them positionally into E, F, G (ignoring the 4th and 5th saved variables).
+- `CLOAD"x",V,E,H` loads E←A, F←B, G←C, and zeroes H (file shorter than target range).
+
+The exact binary encoding of each record in the tape file — especially for string variables —
+is **still unknown** and requires hardware dumps to determine. Candidates:
+
+- Raw 8-byte D0H record + appended string buffer (raw memory approach)
+- Actual string characters inline (length-prefixed or fixed-size)
+- Some other normalised form
+
+**Decoding strategy for `VariablesConverter` (pending file format confirmation from dumps):**
+- Hardware dump `pc1500-vars-strings.bin` will reveal the string record format.
+- For numerics (confirmed from §5-3-1/§5-3-2):
+  - If `bytes[4] == 0xB2`: integer; value = signed16(`bytes[5]`, `bytes[6]`)
+  - Otherwise: decimal float; exponent = signed8(`bytes[0]`), sign = `bytes[1]`, BCD mantissa = bytes 2–6
 
 ---
 
@@ -247,9 +391,46 @@ BCD decoding: 8-byte PC-1500 packed BCD; sign and exponent nibbles per Sharp PC-
    - PC-1600 `getHeader()` bug fixed: now uses correct 3-byte little-endian encoding (original used 2-byte big-endian)
    - PC-1600 end marker `0x000F` added to `getHeader()` output
    - PC-1600 RESERVE/VARIABLES type bytes remain unknown; constructor throws `UnsupportedOperationException` with a clear message pending hardware research
-4. **Conversion layer**: `AsciiBasicTokenizer`, `ReserveAreaConverter`, `VariablesConverter`; write conversion tests including round-trip
-5. **Serial layer**: port `ByteProcessor`, `Watchdog`, `SerialPortWrapper`; implement `DataReceiver`, `DataSender`; write `WatchdogTest`
-6. **Wire together**: implement `FileHandler` (no clipboard), complete `SharpDataExchange.main()` orchestration; manual integration test on hardware
+4. **Hardware dumps** *(user action — required before step 5)*: capture raw binary files
+   from real PC-1500 hardware to confirm the Reserve Area payload start address and to
+   fully spec the Variables binary format. Use `SETDEV U1,CI,CO` first, then **SharpCommunicator**
+   `--out-file <file> --out-format binary` to write the raw binary including the CE-158 header.
+
+   All dump files go in `src/test/resources/dumps/` and are committed to the repository
+   so they serve as both format-confirmation evidence and permanent test fixtures.
+
+   **Reserve Area (`CSAVE"x",A`)** — one dump:
+   - File: `src/test/resources/dumps/pc1500-reserve.bin`
+   - Purpose: confirm whether CE-158 payload starts at 4008H (189 bytes, no ROM status)
+     or 4000H (197 bytes, with ROM status). Format is otherwise fully spec'd.
+   - Content: populate all three layers with labels and several keys defined, so the
+     pool is non-trivial and easy to cross-check against the SDAR ASCII output.
+
+   **Variables** — three dumps to reveal block structure and all data types:
+   Numeric value encoding (BCD decimal and B2H integer) is fully spec'd from §5-3-1/§5-3-2.
+   The dumps are needed to determine: the string variable tape encoding (the §5-3-3 D0H
+   pointer record is in-RAM layout only — the tape format is unknown), and the CE-158
+   file block structure (confirmed sequential/positional, no variable names in the file).
+
+   - `src/test/resources/dumps/pc1500-vars-numeric.bin`
+     Store several numeric variables and save them: a positive float, a negative float,
+     π (3.14159265), a very small number, zero, and a small integer (to verify whether
+     B2H encoding appears in practice or only BCD floats are used).
+   - `src/test/resources/dumps/pc1500-vars-strings.bin`
+     Store single-letter string variables (e.g. A$, B$, C$) and save them:
+     a short string, an empty string, and a string with a double-quote character.
+     Single-letter strings (A$–Z$) have fixed memory locations — this dump will show
+     their tape encoding directly.
+   - `src/test/resources/dumps/pc1500-vars-mixed.bin`
+     A mix of numerics and strings (e.g. A=1.5, B$="HI", C=0, D$="") to reveal
+     how numeric and string records interleave in the CE-158 payload, and to confirm
+     the purely positional (no-name) structure.
+
+   **Machine language** — no dump needed; format is already fully understood.
+
+5. **Conversion layer**: `AsciiBasicTokenizer`, `ReserveAreaConverter`, `VariablesConverter`; write conversion tests including round-trip
+6. **Serial layer**: port `ByteProcessor`, `Watchdog`, `SerialPortWrapper`; implement `DataReceiver`, `DataSender`; write `WatchdogTest`
+7. **Wire together**: implement `FileHandler` (no clipboard), complete `SharpDataExchange.main()` orchestration; manual integration test on hardware
 
 ---
 
