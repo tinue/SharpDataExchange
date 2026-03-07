@@ -203,19 +203,22 @@ List<String> asciiLines = detokenizer.detokenize(payloadBytes);
 
 Source: Sharp PC-1500 Technical Reference Manual §5-3-6.
 
-The payload is **189 bytes**, starting at memory address 4008H (the 8-byte ROM status
-block at 4000H–4007H is machine-specific configuration and is not included):
+The payload is **187 bytes** (confirmed by hardware dump), starting at memory address
+4008H (the 8-byte ROM status block at 4000H–4007H is machine-specific configuration and
+is not included — the CE-158 start-address field for RESERVE type contains 0x0008,
+the offset into the reserve area, confirming the 4008H start):
 
 | Payload offset | Memory address | Size | Content |
 |---|---|---|---|
 | 0x000 | 4008H | 26 bytes | Key symbol (label) for layer I — null-padded 7-bit CP437 string |
 | 0x01A | 4022H | 26 bytes | Key symbol (label) for layer II |
 | 0x034 | 403CH | 26 bytes | Key symbol (label) for layer III |
-| 0x04E | 4056H | 111 bytes | Key contents pool |
+| 0x04E | 4056H | 110 bytes | Key contents pool |
 
 **Key symbol format**: 26 bytes; the label string in 7-bit CP437, null-terminated and
-padded with 00H to fill the 26 bytes. Example: `" PRT INP GTO GSB RET "` followed by
-five 00H bytes.
+padded with 00H to fill the 26 bytes. Example: `"SIN COS PRI ABC DEF IFK"` followed by
+three 00H bytes. Filename is null-padded per §13 of the Technical Reference Manual
+("blank portions will be padded with NULL codes (00 hex)"); `trim()` strips them on read.
 
 **Key contents pool** (111 bytes): a flat stream of entries, one final 00H terminator:
 
@@ -242,12 +245,15 @@ five 00H bytes.
 - **Entry order**: registration order (not sorted by key code). On re-registration, the
   old entry is deleted and the new one appended.
 - **00H** terminates the entire pool. Unused bytes in the 111-byte pool are 00H.
-- **Size limit**: total pool content (all entries + final 00H) must not exceed 111 bytes.
+- **Size limit**: total pool content (all entries + final 00H) must not exceed 110 bytes.
   `ReserveAreaConverter` must check this when converting SDAR→binary.
 
-> **Note**: the payload start address (4008H vs 4000H) is to be confirmed by a real
-> SharpCommunicator binary capture. The ROM status bytes at 4000H–4007H must not be
-> exposed in the SDAR ASCII format and must not be restored on write-back.
+> **CE-158 length field encoding (§13 of Technical Reference Manual, confirmed by dump):**
+> The length field stores **capacity − 1** (i.e., `actual_payload_length − 1`). When
+> reading: `length = wire_value + 1`. When writing: `wire_value = length − 1`.
+> File structure is simply `[27-byte header][length bytes]` — no checksum byte.
+> Confirmed: dump file is 215 bytes = 27 header + 188 payload; wire length field = 0x00BB = 187 = 188−1.
+> `Ce158Header.java` implements this encoding. There is no CE-158 checksum in the file.
 
 ### ASCII format: Reserve Area (SDAR)
 
@@ -299,7 +305,7 @@ key 6:
 - BASIC keywords de-tokenized on write (binary→SDAR), re-tokenized on read (SDAR→binary)
 - Comment (`;`) and blank lines ignored anywhere in the file
 - **Size limit**: the `ReserveAreaConverter` must verify that the total tokenized binary
-  pool (all entries + 00H terminator) fits within 111 bytes; reject with a clear error if not
+  pool (all entries + 00H terminator) fits within 110 bytes; reject with a clear error if not
 
 ### ASCII format: Variables (SDAV)
 
@@ -399,12 +405,12 @@ is **still unknown** and requires hardware dumps to determine. Candidates:
    All dump files go in `src/test/resources/dumps/` and are committed to the repository
    so they serve as both format-confirmation evidence and permanent test fixtures.
 
-   **Reserve Area (`CSAVE"x",A`)** — one dump:
-   - File: `src/test/resources/dumps/pc1500-reserve.bin`
-   - Purpose: confirm whether CE-158 payload starts at 4008H (189 bytes, no ROM status)
-     or 4000H (197 bytes, with ROM status). Format is otherwise fully spec'd.
-   - Content: populate all three layers with labels and several keys defined, so the
-     pool is non-trivial and easy to cross-check against the SDAR ASCII output.
+   **Reserve Area (`CSAVE"x",A`)** — ✅ done: `src/test/resources/dumps/pc1500-reserve.bin`
+   - Payload confirmed: 188 bytes = 3×26-byte labels + 110-byte pool (no checksum)
+   - Payload starts at 4008H (ROM status block 4000H–4007H not included) ✓
+   - All three layers present; pool structure and token encoding verified
+   - File structure: `[27-byte CE-158 header][188-byte payload]` = 215 bytes
+   - CE-158 length field = 187 = 188−1 (capacity−1 encoding confirmed from §13)
 
    **Variables** — three dumps to reveal block structure and all data types:
    Numeric value encoding (BCD decimal and B2H integer) is fully spec'd from §5-3-1/§5-3-2.

@@ -48,7 +48,7 @@ public class Ce158Header extends SerialHeader {
             throw new NoClassDefFoundError("Code page 437 not available on this JVM");
         }
         this.startAddr = FileType.MACHINE.equals(type) ? makeInt(header, 0x15, 2) : 0;
-        this.length = makeInt(header, 0x17, 2);
+        this.length = makeInt(header, 0x17, 2) + 1; // CE-158 stores capacity-1 (per §13 of Technical Reference Manual)
         this.runAddr = FileType.MACHINE.equals(type) ? makeInt(header, 0x19, 2) : 0;
     }
 
@@ -75,7 +75,7 @@ public class Ce158Header extends SerialHeader {
         }
 
         headerBytes = appendInt(headerBytes, startAddr);
-        headerBytes = appendInt(headerBytes, length);
+        headerBytes = appendInt(headerBytes, length - 1); // CE-158 stores capacity-1 (per §13 of Technical Reference Manual)
         headerBytes = appendInt(headerBytes, runAddr);
         return headerBytes;
     }

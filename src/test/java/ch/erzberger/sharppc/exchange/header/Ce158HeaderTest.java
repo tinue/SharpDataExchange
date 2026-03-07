@@ -133,6 +133,31 @@ class Ce158HeaderTest {
         assertThrows(IllegalArgumentException.class, () -> new Ce158Header(bytes));
     }
 
+    // ---- Wire-format length field ----
+
+    @Test
+    @DisplayName("Length field in wire bytes is capacity-1 (per §13 Technical Reference Manual)")
+    void lengthFieldIsCapacityMinusOne() {
+        int length = 256;
+        Ce158Header h = new Ce158Header(SerialHeader.FileType.BASIC, "TEST", 0, length, 0);
+        byte[] bytes = h.getHeader();
+        // Bytes 0x17-0x18 (23-24) hold the length field, big-endian
+        int wireLength = ((bytes[0x17] & 0xFF) << 8) | (bytes[0x18] & 0xFF);
+        assertEquals(length - 1, wireLength);
+    }
+
+    @Test
+    @DisplayName("Parse real hardware reserve dump: length = 188 (wire value 0x00BB = 187 = 188-1)")
+    void parseRealHardwareDump() throws Exception {
+        java.io.InputStream is = getClass().getResourceAsStream("/dumps/pc1500-reserve.bin");
+        if (is == null) return; // skip if file not present (CI without hardware dumps)
+        byte[] data = is.readAllBytes();
+        Ce158Header h = new Ce158Header(data);
+        assertEquals(SerialHeader.FileType.RESERVE, h.getType());
+        assertEquals("x", h.getFilename());
+        assertEquals(188, h.getLength());
+    }
+
     // ---- Magic bytes in output ----
 
     @Test
