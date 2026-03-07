@@ -309,22 +309,62 @@ key 6:
 
 ### ASCII format: Variables (SDAV)
 
+Variable names are **not stored in the binary format** and are therefore **not present in
+the SDAV format either**. The tape is purely positional; the type and structure of each
+record is self-evident from line syntax.
+
+**Example — mixed scalars and arrays:**
+
 ```
 ; SDAV:1.0 pc1500
-; Count: 4
+; Count: 6
 ; Filename: MYAPP
-A=3.14159265
-B$="HELLO"
-C=0
-D$=""
+3.14159265
+"HELLO"
+0
+""
+DIM $(1)*80
+""
+"long string here"
+DIM $(2)*40
+""
+"foo"
+"bar"
 ```
 
+**Rules:**
+
 - `; SDAV:1.0 <device>` — first line, signals type for detector
-- `; Count: <n>` — number of variables (for validation)
-- Variables: `NAME=<decimal>` or `NAME$="<string>"`
-- Numeric: decoded to decimal (up to 10 significant digits; scientific notation for large/small)
-- String: double-quoted; internal quotes escaped as `\"`; control chars as `\xHH`
-- Variable name type: trailing `$` = string, else numeric
+- `; Count: <n>` — number of binary records (for validation). Each scalar = 1 record.
+  Each `DIM` array = 1 record regardless of element count.
+- `; Filename: <name>` — optional; carries CE-158 filename for round-trip fidelity
+- Comment (`;`) and blank lines ignored anywhere in the file
+- `<decimal>` — numeric scalar; up to 10 significant digits; scientific notation for
+  very large/small values (e.g. `1E-9`)
+- `"<string>"` — simple string scalar (16-byte slot); see string escaping below
+- `DIM $(<dim_max>)*<max_len>` — introduces one DIM'd **string** array record; `*<max_len>`
+  is mandatory in SDAV (optional in PC-1500 BASIC, but required here to reconstruct the
+  binary slot size); must be followed by exactly `dim_max + 1` quoted string lines
+  (elements 0 to `dim_max`)
+- `DIM (<dim_max>)` — introduces one DIM'd **numeric** array record; no `$`, no `*L`
+  (forbidden); must be followed by exactly `dim_max + 1` decimal lines
+- `dim_max` may be 0 — a single-element array loaded into e.g. a variable declared with
+  `DIM A(0)`; elements are always indexed from 0
+- Quoted string lines after a `DIM $` — array elements in index order; value is
+  null-padded to `max_len` in binary (no null terminator if value fills the slot exactly)
+- Decimal lines after a `DIM (` — numeric array elements in index order
+
+**String escaping** (applies to all quoted strings — scalars and array elements):
+
+| Sequence | Meaning |
+|---|---|
+| `\\` | Literal backslash |
+| `\"` | Literal double-quote (e.g. entered on Sharp via `CHR$(34)`) |
+| `\xHH` | Byte with hex value HH (two uppercase hex digits) |
+
+Any other character is stored as-is (7-bit CP437). On `get`, only characters that require
+escaping (`\`, `"`, and bytes < 0x20 or > 0x7E) are escaped; all others are written
+literally.
 
 ### Binary format: numeric variable value (8 bytes, §5-3-1 / §5-3-2)
 
@@ -361,31 +401,130 @@ The D0H / pointer / string-buffer structure described in §5-3-3 is the **in-RAM
 not the tape format. Key points for context:
 
 - Single-letter strings (A$–Z$) have **fixed length and fixed memory address** — no pointer needed.
-- Longer names (AA$, etc.) and DIM'd string arrays likely use the D0H pointer record.
+- DIM'd string arrays use a separate slot-based tape format (see array prefix below).
 - In-memory strings are therefore stored either directly at a fixed location (A$–Z$) or via
-  a pointer to a separate string buffer (AA$, DIM arrays).
+  a pointer to a separate string buffer (DIM arrays).
 
-**CE-158 tape format for variables:**
+**CE-158 tape format for variables — confirmed from hardware dumps:**
 
-The tape payload is a **sequential list of variable values**, with no variable names and no
-memory addresses. Behaviour confirmed by hardware convention:
+Four dumps captured and committed to `src/test/resources/dumps/`:
 
-- `CSAVE"x",V,A,C` saves variables A, B, C as 3 consecutive records.
-- `CLOAD"x",V,E` loads them positionally into E, F, G (ignoring the 4th and 5th saved variables).
-- `CLOAD"x",V,E,H` loads E←A, F←B, G←C, and zeroes H (file shorter than target range).
+| File | Contents |
+|---|---|
+| `pc1500-vars-numeric.bin` | 5 numeric variables: +1.7534, −1.7534, π, 1×10⁻⁹, 0 |
+| `pc1500-vars-strings.bin` | 4 string variables: "Hi there!", "B$", "", "last string" |
+| `pc1500-vars-mixed.bin` | 2 numeric + 2 string interleaved: 1.5, "HI", 0, (string) |
+| `pc1500-vars-longstrings-arrays.bin` | 2 DIM'd string arrays: `AA$(1)*80` (1 element, max 80 chars), `BB$(2)*40` (2 elements, max 40 chars) |
+| `pc1500-vars-mixed-arrays.bin` | 2 numeric arrays (`DIM A(5)` with 6 elements, `DIM A(0)` with 1 element) + 1 string array (`DIM A$(1)*16`) — confirms numeric array prefix format |
 
-The exact binary encoding of each record in the tape file — especially for string variables —
-is **still unknown** and requires hardware dumps to determine. Candidates:
+The tape payload is a **sequential list of variable records**, one per saved variable (or one
+per DIM'd array), with no variable names — purely positional (confirmed). Each record is
+preceded by a `0x00` separator byte (including the first). The positional CLOAD behaviour
+is confirmed.
 
-- Raw 8-byte D0H record + appended string buffer (raw memory approach)
-- Actual string characters inline (length-prefixed or fixed-size)
-- Some other normalised form
+**Payload structure:**
 
-**Decoding strategy for `VariablesConverter` (pending file format confirmation from dumps):**
-- Hardware dump `pc1500-vars-strings.bin` will reveal the string record format.
-- For numerics (confirmed from §5-3-1/§5-3-2):
-  - If `bytes[4] == 0xB2`: integer; value = signed16(`bytes[5]`, `bytes[6]`)
-  - Otherwise: decimal float; exponent = signed8(`bytes[0]`), sign = `bytes[1]`, BCD mantissa = bytes 2–6
+```
+[0x00] [4-byte prefix] [data]  ← repeated for each variable / array
+```
+
+The 4-byte prefix is self-describing. **Discriminators: prefix byte 1 and byte 3.**
+
+| byte 1 | byte 3 | Interpretation |
+|---|---|---|
+| `0x00` | `0x88` | Simple numeric scalar — OR `DIM A(0)`, binary identical |
+| `0x00` | `0x10` | Simple string scalar (16-byte slot) — OR `DIM A$(0)*16`, binary identical |
+| `0x00` | other | `DIM A$(0)*L` with max_len = byte 3 |
+| non-zero | `0x88` | Numeric array: dim_max = byte 1 |
+| non-zero | other | String array: dim_max = byte 1, max_len = byte 3 |
+
+**Simple variable prefix** (byte 1 = `0x00`):
+
+| Byte | Content |
+|---|---|
+| 0–1 | Total record length − 1, little-endian (record = prefix + data) |
+| 2 | Always `0x00` |
+| 3 | Type: `0x88` = float/BCD, `0x10` = string |
+
+No ambiguity: simple-var records are at most 20 bytes, so byte 1 of the LE16 len field is
+always `0x00`, matching the discriminator rule.
+
+**Numeric record** — prefix `0B 00 00 88`, data 8 bytes, total record 12 bytes:
+
+Same 8-byte BCD value as documented above (exponent, sign, 5-byte BCD, 0x00).
+
+**String record** — prefix `13 00 00 10`, data 16 bytes, total record 20 bytes:
+
+The string content stored left-aligned, null-padded to exactly 16 bytes. No length prefix.
+Maximum observable string length is 16 characters; the 16-byte buffer is the fixed buffer
+size for single-letter string variables (A$–Z$) in the Variable Area.
+
+**DIM'd string array prefix** (byte 1 ≠ `0x00`):
+
+| Byte | Content |
+|---|---|
+| 0 | Total record length − 1 (single byte; fits because arrays can be at most 256+4 bytes for reasonable DIM sizes) |
+| 1 | `dim_max`: N from `DIM X$(N)*L` (the maximum subscript; elements run from 0 to N) |
+| 2 | Always `0x00` |
+| 3 | `max_len`: L from `DIM X$(N)*L` (maximum string length per element) |
+
+**DIM'd string array data:**
+
+`(dim_max + 1)` sequential slots of exactly `max_len` bytes each, from index 0 to
+`dim_max`. Each slot contains the string value null-padded to `max_len` bytes. If the
+string value exactly fills the slot there is no null terminator. Total record length =
+`4 + (dim_max + 1) × max_len`; confirmed by both array records in the dump:
+- `AA$(1)*80`: `4 + 2×80 = 164`, len_minus_1 = 163 = `0xa3` ✓
+- `BB$(2)*40`: `4 + 3×40 = 124`, len_minus_1 = 123 = `0x7b` ✓
+
+Variable name is **not stored** in the array record. The format is purely positional —
+on `CLOAD,V` the PC-1500 must have the arrays pre-DIM'd in the correct order.
+
+**CE-158 length field:** Always `0x0000` raw (parsed as 1 — meaningless) for VARIABLES saves.
+The actual payload length cannot be read from the header. `VariablesConverter` must read
+records until EOF; there is no trailing terminator byte in the payload.
+
+**Binary → SDAV (`get`) strategy for `VariablesConverter`:**
+
+For each record:
+- Read `0x00` separator; if EOF, stop.
+- Read 4-byte prefix.
+- If prefix byte 1 = `0x00` (simple variable):
+  - `len_minus_1` = LE16(bytes 0–1), `type` = byte 3.
+  - Data length = `len_minus_1 + 1 − 4`.
+  - If `type == 0x88`: numeric — decode 8-byte BCD value → emit `<decimal>`.
+    - If `data[4] == 0xB2`: B2H integer (not observed in dumps, keep for completeness).
+    - Otherwise: BCD float; exponent = signed8(`data[0]`), sign = `data[1]`, mantissa = `data[2..6]`.
+  - If `type == 0x10`: string — read 16-byte buffer; trim trailing nulls → emit `"<escaped>"`.
+- If prefix byte 1 ≠ `0x00` (DIM'd array):
+  - `dim_max` = byte 1, type indicator = byte 3.
+  - If byte 3 = `0x88` (numeric array): emit `DIM (<dim_max>)`; read `dim_max + 1`
+    8-byte BCD values; for each → emit `<decimal>`.
+  - Otherwise (string array): max_len = byte 3; emit `DIM $(<dim_max>)*<max_len>`;
+    read `dim_max + 1` slots of `max_len` bytes; trim trailing nulls → emit `"<escaped>"`.
+- Loop.
+
+**SDAV → binary (`put`) strategy for `VariablesConverter`:**
+
+Parse line by line, skipping blanks and `;` comments:
+- `<decimal>` → numeric scalar record: encode BCD, write `00 0B 00 00 88` + 8 bytes.
+- `"<string>"` (outside a DIM context) → string scalar record: unescape, encode to 16 bytes,
+  write `00 13 00 00 10` + 16 bytes.
+- `DIM $(<dim_max>)*<max_len>` → read next `dim_max + 1` non-blank non-comment quoted
+  string lines; unescape each; write `00 <len_minus_1> <dim_max> 00 <max_len>` +
+  `(dim_max + 1)` slots of `max_len` bytes each (null-padded, no null terminator if full).
+- `DIM (<dim_max>)` → read next `dim_max + 1` non-blank non-comment decimal lines;
+  encode each as 8-byte BCD; write `00 <len_minus_1> <dim_max> 00 88` +
+  `(dim_max + 1)` × 8 bytes.
+- Validate final record count against `; Count:` header; reject with a clear error if mismatch.
+
+**Note on B2H integer encoding:** Not observed in any hardware dump. Appears to be an
+in-RAM computation format only; unlikely to appear in `CSAVE,V` output. Keep decode support
+for correctness.
+
+**Note on numeric arrays and named non-array variables (AA$, BB$, ...):** Only DIM'd
+string arrays have been confirmed from hardware. Numeric arrays (`DIM A(N)`) and named
+non-DIM'd string scalars (AA$, BB$, ...) may use different formats — not yet captured.
 
 ---
 
@@ -397,7 +536,7 @@ is **still unknown** and requires hardware dumps to determine. Candidates:
    - PC-1600 `getHeader()` bug fixed: now uses correct 3-byte little-endian encoding (original used 2-byte big-endian)
    - PC-1600 end marker `0x000F` added to `getHeader()` output
    - PC-1600 RESERVE/VARIABLES type bytes remain unknown; constructor throws `UnsupportedOperationException` with a clear message pending hardware research
-4. **Hardware dumps** *(user action — required before step 5)*: capture raw binary files
+4. ✅ **Hardware dumps**: capture raw binary files
    from real PC-1500 hardware to confirm the Reserve Area payload start address and to
    fully spec the Variables binary format. Use `SETDEV U1,CI,CO` first, then **SharpCommunicator**
    `--out-file <file> --out-format binary` to write the raw binary including the CE-158 header.
@@ -412,25 +551,26 @@ is **still unknown** and requires hardware dumps to determine. Candidates:
    - File structure: `[27-byte CE-158 header][188-byte payload]` = 215 bytes
    - CE-158 length field = 187 = 188−1 (capacity−1 encoding confirmed from §13)
 
-   **Variables** — three dumps to reveal block structure and all data types:
-   Numeric value encoding (BCD decimal and B2H integer) is fully spec'd from §5-3-1/§5-3-2.
-   The dumps are needed to determine: the string variable tape encoding (the §5-3-3 D0H
-   pointer record is in-RAM layout only — the tape format is unknown), and the CE-158
-   file block structure (confirmed sequential/positional, no variable names in the file).
+   **Variables** — ✅ done: four dumps captured and analysed.
 
-   - `src/test/resources/dumps/pc1500-vars-numeric.bin`
-     Store several numeric variables and save them: a positive float, a negative float,
-     π (3.14159265), a very small number, zero, and a small integer (to verify whether
-     B2H encoding appears in practice or only BCD floats are used).
-   - `src/test/resources/dumps/pc1500-vars-strings.bin`
-     Store single-letter string variables (e.g. A$, B$, C$) and save them:
-     a short string, an empty string, and a string with a double-quote character.
-     Single-letter strings (A$–Z$) have fixed memory locations — this dump will show
-     their tape encoding directly.
-   - `src/test/resources/dumps/pc1500-vars-mixed.bin`
-     A mix of numerics and strings (e.g. A=1.5, B$="HI", C=0, D$="") to reveal
-     how numeric and string records interleave in the CE-158 payload, and to confirm
-     the purely positional (no-name) structure.
+   - `src/test/resources/dumps/pc1500-vars-numeric.bin` ✅
+     5 numeric variables (floats + zero). B2H integer encoding not observed; all BCD.
+   - `src/test/resources/dumps/pc1500-vars-strings.bin` ✅
+     4 string variables (short, literal "B$", empty, long). 16-byte fixed buffer confirmed.
+   - `src/test/resources/dumps/pc1500-vars-mixed.bin` ✅
+     2 numeric + 2 string interleaved. Positional structure and record separator confirmed.
+   - `src/test/resources/dumps/pc1500-vars-longstrings-arrays.bin` ✅
+     `DIM AA$(1)*80` (1 element, max 80 chars) + `DIM BB$(2)*40` (2 elements, max 40 chars).
+     New prefix format confirmed: byte 1 = dim_max, byte 3 = max_len; data = sequential
+     max_len-byte slots for each element (index 0 to dim_max); no variable name stored.
+   - `src/test/resources/dumps/pc1500-vars-mixed-arrays.bin` ✅
+     `DIM A(5)` (6 numeric elements) + `DIM A(0)` (1 numeric element) + `DIM A$(1)*16`
+     (2 string elements). Numeric array prefix confirmed: byte 3 = `0x88`, data =
+     (dim_max+1) × 8-byte BCD. `DIM A(0)` binary-identical to simple numeric scalar
+     confirmed. File has 2 leading `0x00` bytes before the CE-158 header (capture
+     artifact); ContentDetector should scan for magic rather than assuming offset 0.
+
+   Format fully specified — see "CE-158 tape format for variables" section above.
 
    **Machine language** — no dump needed; format is already fully understood.
 
