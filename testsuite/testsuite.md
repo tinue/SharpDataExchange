@@ -9,7 +9,8 @@ Run these tests before each release, in addition to the unit tests.
 - SharpDataExchange detects file format from content automatically — no format flags needed for the common cases.
 - `put` always sends to the Pocket Computer; `get` always receives from it. There is no disk-to-disk conversion mode.
 - `get` detokenizes BINARY_BASIC to ASCII by default. Use `--format binary` to save raw bytes instead.
-- Pocket Computer commands are shown in parentheses after the corresponding `sde` command.
+- For `put`: start the Pocket Computer command first (so it is ready to receive), then run `sde put`.
+- For `get`: run `sde get` first (so it is listening), then trigger the Pocket Computer to send.
 
 ---
 
@@ -19,45 +20,51 @@ Run these tests before each release, in addition to the unit tests.
 
 **Put an ASCII BASIC program:**
 
+PC-1500: `CLOAD`
+
 ```
 sde put depreciation.bas
 ```
-PC-1500: `CLOAD` — program should load and run correctly. Re-initialize serial with `Def-J` between tests if needed.
+Program should load and run correctly. Re-initialize serial with `Def-J` between tests if needed.
 
 **Put an ASCII BASIC program with the serial utility sub-program prepended:**
+
+PC-1500: `CLOAD`
 
 ```
 sde put --add-utils depreciation.bas
 ```
-PC-1500: `CLOAD` — program loads; the utility routines appear at the start of the program listing.
+Program loads; the utility routines appear at the start of the program listing.
 
 > Note: `--add-utils` is not yet implemented and will log a warning; the program is sent without utilities in the meantime.
 
 **Put a binary BASIC program that already has a CE-158 header:**
 
+PC-1500: `CLOAD`
+
 ```
 sde put depreciation-tokenized-ce158header.bin
 ```
-PC-1500: `CLOAD` — identical to the ASCII put above; SharpDataExchange detects the CE-158 header and sends the file as-is.
+Identical result to the ASCII put above; SharpDataExchange detects the CE-158 header and sends the file as-is.
 
 ### BASIC — get (Pocket Computer sends)
 
 **Get a BASIC program as ASCII (default):**
 
-PC-1500: `CSAVE"DEPRECIATION"`, then:
-
 ```
 sde get deptest.bas
 ```
+PC-1500: `CSAVE"DEPRECIATION"`
+
 Compare `deptest.bas` with `depreciation.bas`. Content should be identical; spacing after keywords may differ because the detokenizer uses a normalized form (one space after each keyword).
 
 **Get a BASIC program as raw binary:**
 
-PC-1500: `CSAVE"DEPRECIATION"`, then:
-
 ```
 sde get --format binary deptest.bin
 ```
+PC-1500: `CSAVE"DEPRECIATION"`
+
 Compare `deptest.bin` with `depreciation-tokenized-ce158header.bin`. There will be minor differences in two header bytes that the PC-1500 writes as internal memory pointers (documented as "don't care" in the CE-158 manual) — this is expected.
 
 ### BASIC — line length test
@@ -66,10 +73,12 @@ Line 20 of `LineLengthTest.bas` is 217 characters long. Tokenized, it fits withi
 
 **Verify the tokenized load succeeds:**
 
+PC-1500: `CLOAD`
+
 ```
 sde put LineLengthTest.bas
 ```
-PC-1500: `CLOAD` — should succeed. `LIST 20` shows the full line.
+Should succeed. `LIST 20` on the PC-1500 shows the full line.
 
 **Verify that a raw ASCII load fails:**
 
@@ -81,39 +90,43 @@ PC-1500: `CLOADa`, then send the file from another tool in plain text (or type t
 
 **Get Reserve Area data:**
 
-PC-1500: program the reserve keys (e.g. define labels and key content), then `CSAVE"MYRESERVE",A`, then:
-
 ```
 sde get reserve.sdar
 ```
+PC-1500: `CSAVE"MYRESERVE",A`
+
 `reserve.sdar` will be an SDAR text file showing the three layers of key labels and content with BASIC keywords detokenized.
 
 **Edit and put back:**
 
 Edit `reserve.sdar` (change a key label or content), then:
 
+PC-1500: `CLOAD,A`
+
 ```
 sde put reserve.sdar
 ```
-PC-1500: `CLOAD,A` — the updated key definitions appear in the reserve area.
+The updated key definitions appear in the reserve area.
 
 ### Variables — round-trip
 
 **Get Variables:**
 
-PC-1500: set some variables and `CSAVE"MYVARS",V`, then:
-
 ```
 sde get vars.sdav
 ```
+PC-1500: `CSAVE"MYVARS",V`
+
 `vars.sdav` will be an SDAV text file listing each variable value in order.
 
 **Put Variables back:**
 
+PC-1500: `CLOAD,V` (variables must be pre-DIM'd in the correct order if arrays are used)
+
 ```
 sde put vars.sdav
 ```
-PC-1500: `CLOAD,V` (variables must be pre-DIM'd in the correct order if arrays are used) — values are restored.
+Values are restored.
 
 ---
 
@@ -121,46 +134,52 @@ PC-1500: `CLOAD,V` (variables must be pre-DIM'd in the correct order if arrays a
 
 All PC-1600 commands require `--device pc1600` (or `-d pc1600`).
 
-### BASIC — put
+### BASIC — put (Pocket Computer receives)
 
 **Put an ASCII BASIC program:**
+
+PC-1600: `LOAD "COM1:"`
 
 ```
 sde put --device pc1600 depreciation.bas
 ```
-PC-1600: `LOAD "COM1:"` — program loads and runs correctly. Re-initialize the COM port with `Def-J` between tests if needed.
+Program loads and runs correctly. Re-initialize the COM port with `Def-J` between tests if needed.
 
 **Put a binary BASIC program with a PC-1600 header:**
+
+PC-1600: `LOAD "COM1:"`
 
 ```
 sde put --device pc1600 depreciation-tokenized-pc1600header.bin
 ```
-PC-1600: `LOAD "COM1:"` — identical result; SharpDataExchange detects the PC-1600 header and sends as-is.
+Identical result; SharpDataExchange detects the PC-1600 header and sends as-is.
 
-### BASIC — get
+### BASIC — get (Pocket Computer sends)
 
 **Get a BASIC program as ASCII:**
-
-PC-1600: `Def-S` (or `SAVE "COM1:"`), then:
 
 ```
 sde get --device pc1600 deptest.bas
 ```
+PC-1600: `Def-S` (or `SAVE "COM1:"`)
+
 Compare `deptest.bas` with `depreciation.bas` (content should match, spacing may differ).
 
-**Get a BASIC program as raw binary:**
-
-PC-1600: `SAVE "COM1:"`, then:
+**Get a BASIC program as raw binary, then load it back:**
 
 ```
 sde get --format binary --device pc1600 deptest.bin
 ```
-Load it back immediately:
+PC-1600: `SAVE "COM1:"`
+
+Then load it back:
+
+PC-1600: `Def-L`
 
 ```
 sde put --device pc1600 deptest.bin
 ```
-PC-1600: `Def-L` — the same program loads back.
+The same program loads back.
 
 ---
 
