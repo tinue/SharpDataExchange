@@ -163,7 +163,7 @@ The exact ordering matters because the Pocket Computer does not buffer data. The
 When receiving data from the Pocket Computer, SharpDataExchange always saves it as ASCII by default. The recommended way to send data from the Pocket Computer is the standard binary save command (`CSAVE` / `SAVE "COM1:"`): it is faster than ASCII transfer and SharpDataExchange de-tokenizes the result automatically.
 
 - A program saved with `CSAVE` or `SAVE "COM1:"` (binary) is de-tokenized and written as readable ASCII BASIC.
-- Reserve Area data is written in a readable structured format (SDAR) showing the three layers, labels, and key definitions with BASIC keywords de-tokenized.
+- Reserve Area data is written in a readable structured format (SDAR) showing the three layers, labels, and key definitions with BASIC keywords de-tokenized. (**PC-1500 only**; the PC-1600 does not support Reserve Area transfer via serial).
 - Variable data is written in a readable key-value format (SDAV).
 
 The ASCII save variants (`CSAVEa`, `SAVE "COM1:",A`) still work and produce the same result on the PC, but are slower and are not normally needed.
@@ -193,7 +193,7 @@ If a filename is provided but lacks an extension (no dot in the name), the appro
 | Data Type | Extension |
 |---|---|
 | BASIC program | `.bas` |
-| Reserve Area | `.sdar` |
+| Reserve Area (PC-1500 only) | `.sdar` |
 | Variables | `.sdav` |
 | Machine code | `.bin` |
 
@@ -437,9 +437,9 @@ Raw binary format as used by the Pocket Computer's cassette interface. The PC-15
 
 Use `--format binary` with `get` to save the file in binary form. The header is included by default, making the file directly usable with `put` without re-tokenizing. Use `--skip-header` to omit it — but note that SharpDataExchange cannot identify or reload a headerless binary file, and will print a warning when this option is used.
 
-### Reserve Area (SDAR)
+### Reserve Area (SDAR) — PC-1500 only
 
-A human-readable format for the PC-1500 Reserve Area. The Reserve Area stores three layers of definitions for the six reserve keys. Each layer has a label and six key slots; key content may include BASIC keywords shown in full readable form.
+A human-readable format for the PC-1500 Reserve Area. The PC-1600 does not support Reserve Area transfer via serial (it is only available via the tape interface).
 
 ```
 ; SDAR:1.0 pc1500

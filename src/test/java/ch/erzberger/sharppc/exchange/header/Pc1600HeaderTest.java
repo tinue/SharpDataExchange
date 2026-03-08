@@ -120,12 +120,10 @@ class Pc1600HeaderTest {
     }
 
     @Test
-    @DisplayName("RESERVE header round-trip")
-    void reserveRoundTrip() {
-        Pc1600Header original = new Pc1600Header(SerialHeader.FileType.RESERVE, "", 0, 188, 0);
-        Pc1600Header parsed = new Pc1600Header(original.getHeader());
-        assertEquals(SerialHeader.FileType.RESERVE, parsed.getType());
-        assertEquals(188, parsed.getLength());
+    @DisplayName("RESERVE type throws UnsupportedOperationException")
+    void reserveTypeUnsupported() {
+        assertThrows(UnsupportedOperationException.class, () ->
+                new Pc1600Header(SerialHeader.FileType.RESERVE, "", 0, 188, 0));
     }
 
     @Test
@@ -135,13 +133,6 @@ class Pc1600HeaderTest {
         Pc1600Header parsed = new Pc1600Header(original.getHeader());
         assertEquals(SerialHeader.FileType.VARIABLES, parsed.getType());
         assertEquals(80, parsed.getLength());
-    }
-
-    @Test
-    @DisplayName("RESERVE type byte is 0x41 ('A')")
-    void reserveTypeByte() {
-        Pc1600Header h = new Pc1600Header(SerialHeader.FileType.RESERVE, "", 0, 100, 0);
-        assertEquals(0x41, h.getHeader()[4] & 0xFF);
     }
 
     @Test
