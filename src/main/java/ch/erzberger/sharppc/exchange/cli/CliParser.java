@@ -106,9 +106,9 @@ public class CliParser {
         }
 
         // get-only options
-        boolean includeHeader = false;
+        boolean skipHeader = false;
         if ("get".equals(verb)) {
-            includeHeader = line.hasOption("include-header");
+            skipHeader = line.hasOption("skip-header");
         }
 
         // put-only options
@@ -148,7 +148,7 @@ public class CliParser {
         log.log(Level.FINE, "Parsed CLI: verb={0} file={1} device={2} port={3} format={4}",
                 new Object[]{verb, file, device, port, format});
 
-        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, includeHeader);
+        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader);
     }
 
     private Options createOptions() {
@@ -169,8 +169,8 @@ public class CliParser {
                 .desc("Machine language auto-run address (hex)").hasArg().build());
         options.addOption(new Option("u", "add-utils", false,
                 "Prepend serial utility BASIC sub-program"));
-        options.addOption(new Option(null, "include-header", false,
-                "Include serial header in saved binary file (get --format binary only)"));
+        options.addOption(new Option(null, "skip-header", false,
+                "Omit serial header from saved binary file (get --format binary only; not recommended)"));
         return options;
     }
 

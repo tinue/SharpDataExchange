@@ -59,7 +59,7 @@ Compare `deptest.bas` with `depreciation.bas`. Content should be identical; spac
 **Get a BASIC program as raw binary:**
 
 ```
-sde get --format binary --include-header deptest.bin
+sde get --format binary deptest.bin
 ```
 PC-1500: `CSAVE"depreciation"`
 
@@ -166,7 +166,7 @@ Compare `deptest.bas` with `depreciation.bas` (content should match, spacing may
 **Get a BASIC program as raw binary, then load it back:**
 
 ```
-sde get --format binary --include-header --device pc1600 deptest.bin
+sde get --format binary --device pc1600 deptest.bin
 ```
 PC-1600: `SAVE "COM1:"`
 
@@ -190,7 +190,7 @@ The same program loads back.
 | `depreciation-tokenized-pc1600header.bin` | Same program, tokenized, with PC-1600 header. |
 | `LineLengthTest.bas` | Two-line program where line 20 is 217 characters — fits when tokenized, too long for ASCII `CLOADa`. |
 
-> **Not included:** `depreciation-tokenized-raw.bin` (tokenized without any header) is not usable with SharpDataExchange because content-based detection cannot identify a headerless binary blob; it would be reported as `UNKNOWN`.
+> **Not included:** `depreciation-tokenized-raw.bin` (tokenized without any header) is not usable with SharpDataExchange because content-based detection cannot identify a headerless binary blob; it would be reported as `UNKNOWN`. Use `--skip-header` only when interoperating with external tools that need raw payload bytes — SharpDataExchange will warn you and cannot reload the resulting file.
 
 ---
 

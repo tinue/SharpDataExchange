@@ -91,9 +91,14 @@ public class SharpDataExchange {
         DataType type = new ContentDetector().detect(withHeader);
         log.log(Level.FINE, "Detected type: {0}", type);
 
+        if (args.skipHeader() && OutputFormat.BINARY.equals(args.format())) {
+            System.err.println("WARNING: --skip-header omits the serial header from the saved file." +
+                    " The file cannot be identified or reloaded by SharpDataExchange without it.");
+        }
+
         switch (type) {
             case BINARY_BASIC -> getBinaryBasic(
-                    args.includeHeader() ? withHeader : payload, args.format(), args.device(), args.file());
+                    args.skipHeader() ? payload : withHeader, args.format(), args.device(), args.file());
             case BINARY_RESERVE -> {
                 String sdar = ReserveAreaConverter.toAscii(payload, filename, args.device());
                 FileHandler.writeText(args.file(), sdar);
@@ -107,7 +112,7 @@ public class SharpDataExchange {
                 FileHandler.writeText(args.file(), text);
             }
             case MACHINE -> FileHandler.writeBinary(args.file(),
-                    args.includeHeader() ? withHeader : payload);
+                    args.skipHeader() ? payload : withHeader);
             default -> {
                 log.log(Level.SEVERE, "Unsupported data type for get: {0}", type);
                 System.exit(1);
