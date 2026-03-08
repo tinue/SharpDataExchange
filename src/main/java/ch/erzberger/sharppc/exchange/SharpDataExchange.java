@@ -168,10 +168,10 @@ public class SharpDataExchange {
     }
 
     private static byte[] encodeAsciiBasic(byte[] rawData, CliArgs args) {
-        if (args.addUtils()) {
-            log.log(Level.WARNING, "--add-utils is not yet implemented; sending without utilities");
-        }
         String text = new String(rawData, StandardCharsets.UTF_8);
+        if (args.addUtils()) {
+            text = text + loadUtilBasic(args.device());
+        }
         byte[] payload = new AsciiBasicTokenizer(args.device()).tokenize(text);
         String filename = deriveFilename(args.file());
         SerialHeader header = SerialHeader.makeHeader(args.device(), SerialHeader.FileType.BASIC,
@@ -196,6 +196,24 @@ public class SharpDataExchange {
         SerialHeader header = SerialHeader.makeHeader(args.device(), SerialHeader.FileType.VARIABLES,
                 filename, 0, 1, 0);
         return concat(header.getHeader(), payload);
+    }
+
+    /**
+     * Load the serial utility BASIC sub-program for the given device from resources.
+     * Returns an empty string on failure (caller proceeds without utilities).
+     */
+    private static String loadUtilBasic(PocketPcDevice device) {
+        String resourceName = device.isPC1600() ? "/setcom1600.bas" : "/setcom1500.bas";
+        try (java.io.InputStream in = SharpDataExchange.class.getResourceAsStream(resourceName)) {
+            if (in == null) {
+                log.log(Level.SEVERE, "Could not find resource: {0}", resourceName);
+                return "";
+            }
+            return "\n" + new String(in.readAllBytes(), StandardCharsets.US_ASCII);
+        } catch (java.io.IOException e) {
+            log.log(Level.SEVERE, "Failed to read resource: {0}", resourceName);
+            return "";
+        }
     }
 
     // ---- Serial port helpers ----

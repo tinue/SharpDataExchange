@@ -34,9 +34,7 @@ PC-1500: `CLOAD`
 ```
 sde put --add-utils depreciation.bas
 ```
-Program loads; the utility routines appear at the start of the program listing.
-
-> Note: `--add-utils` is not yet implemented and will log a warning; the program is sent without utilities in the meantime.
+Program loads; the utility routines appear at the end of the program listing (line numbers 61000+).
 
 **Put a binary BASIC program that already has a CE-158 header:**
 
