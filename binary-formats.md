@@ -176,8 +176,12 @@ four hardware dumps in `src/test/resources/dumps/`.
 
 The Variables payload is a **positional** sequence of variable records — no variable names
 are stored.  The PC-1500 loads values into variables in the order they were saved; the
-program must have `INPUT#` preceded by the same variable declarations in the same order
-as the original `PRINT#`.
+program must have `INPUT#` preceded by the same variable **types** and **dimensions**
+in the same order as the original `PRINT#` (variable names do not need to match).
+
+If the incoming data contains fewer records than the `INPUT#` statement expects, the
+PC-1500 fills the remaining variables with zeroes (numeric) or empty strings.  If the
+incoming data contains more records than expected, the extra data is ignored.
 
 Each record is preceded by a `0x00` separator byte, including the first:
 

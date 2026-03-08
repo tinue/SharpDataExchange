@@ -478,7 +478,11 @@ string value exactly fills the slot there is no null terminator. Total record le
 - `BB$(2)*40`: `4 + 3×40 = 124`, len_minus_1 = 123 = `0x7b` ✓
 
 Variable name is **not stored** in the array record. The format is purely positional —
-on `INPUT#` the PC-1500 must have the arrays pre-DIM'd in the correct order.
+on `INPUT#` the PC-1500 must have the variables and arrays pre-DIM'd with matching
+**types** and **dimensions** in the correct order (names do not matter).
+
+If fewer records arrive than expected, the remaining variables are filled with zeroes/empty
+strings; if more records arrive, the extra data is ignored. confirmed.
 
 **CE-158 length field:** Always `0x0000` raw (parsed as 1 — meaningless) for VARIABLES saves.
 The actual payload length cannot be read from the header. `VariablesConverter` must read
