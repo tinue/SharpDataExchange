@@ -538,8 +538,7 @@ non-DIM'd string scalars (AA$, BB$, ...) may use different formats — not yet c
 2. ✅ **CLI layer**: enums (`PocketPcDevice`, `OutputFormat`, `DataType`), `CliArgs` record, `CliParser`; write `CliParserTest` — 31 tests passing
 3. ✅ **Headers + detection**: port `SerialHeader`/`Ce158Header`/`Pc1600Header`; implement `ContentDetector`; write header and detector tests — 27 tests passing
    - PC-1600 end marker `0x000F` added to `getHeader()` output
-   - PC-1600 VARIABLES (0x48) type byte assumed to match PC-1500, but only for tape format (not yet implemented).
-   - PC-1600 serial variables via `PRINT#` / `INPUT#` are raw ASCII CSV, no header.
+   - PC-1600 VARIABLES (0x48) type byte assumed to match PC-1500, pending hardware verification
    - PC-1600 RESERVE type is NOT supported via serial/COM
 4. ✅ **Hardware dumps**: capture raw binary files   from real PC-1500 hardware to confirm the Reserve Area payload start address and to
    fully spec the Variables binary format. Use `SETDEV U1,CI,CO` first, then **SharpCommunicator**
