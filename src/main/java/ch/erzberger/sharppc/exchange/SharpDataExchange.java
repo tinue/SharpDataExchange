@@ -33,9 +33,6 @@ import java.util.logging.LogManager;
 @Log
 public class SharpDataExchange {
 
-    /** CE-158 header size in bytes. */
-    private static final int CE158_HEADER_SIZE = 27;
-
     public static void main(String[] args) {
         try {
             LogManager.getLogManager().readConfiguration(
@@ -88,13 +85,15 @@ public class SharpDataExchange {
         if (filename != null && !filename.isBlank()) {
             System.out.println("Getting " + filename);
         }
-        byte[] payload = sliceFrom(rawData, headerOffset + CE158_HEADER_SIZE);
+        byte[] withHeader = sliceFrom(rawData, headerOffset);
+        byte[] payload = sliceFrom(rawData, headerOffset + header.getHeader().length);
 
-        DataType type = new ContentDetector().detect(sliceFrom(rawData, headerOffset));
+        DataType type = new ContentDetector().detect(withHeader);
         log.log(Level.FINE, "Detected type: {0}", type);
 
         switch (type) {
-            case BINARY_BASIC -> getBinaryBasic(payload, args.format(), args.device(), args.file());
+            case BINARY_BASIC -> getBinaryBasic(
+                    args.includeHeader() ? withHeader : payload, args.format(), args.device(), args.file());
             case BINARY_RESERVE -> {
                 String sdar = ReserveAreaConverter.toAscii(payload, filename, args.device());
                 FileHandler.writeText(args.file(), sdar);
@@ -107,7 +106,8 @@ public class SharpDataExchange {
                 String text = new String(rawData, StandardCharsets.US_ASCII);
                 FileHandler.writeText(args.file(), text);
             }
-            case MACHINE -> FileHandler.writeBinary(args.file(), sliceFrom(rawData, headerOffset));
+            case MACHINE -> FileHandler.writeBinary(args.file(),
+                    args.includeHeader() ? withHeader : payload);
             default -> {
                 log.log(Level.SEVERE, "Unsupported data type for get: {0}", type);
                 System.exit(1);
@@ -118,7 +118,6 @@ public class SharpDataExchange {
 
     private static void getBinaryBasic(byte[] payload, OutputFormat format, PocketPcDevice device, String outFile) {
         if (OutputFormat.BINARY.equals(format)) {
-            // Write payload as binary — caller should re-attach header if needed
             FileHandler.writeBinary(outFile, payload);
             return;
         }
