@@ -1,0 +1,6 @@
+#!/bin/sh
+#
+# Invoke the SharpDataExchange
+# V2.0.0, 2026-03-08
+#
+java -jar ~/bin/SharpDataExchange.jar "$@"

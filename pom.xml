@@ -112,11 +112,11 @@
                         </goals>
                         <configuration>
                             <target>
-                                <mkdir dir="${user.home}/Applications/PocketPc"/>
+                                <mkdir dir="bin"/>
                                 <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                      todir="${user.home}/Applications/PocketPc"
+                                      todir="bin"
                                       overwrite="true"/>
-                                <echo>Installed to ${user.home}/Applications/PocketPc/${project.build.finalName}.jar</echo>
+                                <echo>Installed to bin/${project.build.finalName}.jar</echo>
                             </target>
                         </configuration>
                     </execution>
