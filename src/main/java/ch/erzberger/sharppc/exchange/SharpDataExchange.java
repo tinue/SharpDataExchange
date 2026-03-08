@@ -101,8 +101,13 @@ public class SharpDataExchange {
         }
 
         switch (type) {
-            case BINARY_BASIC -> getBinaryBasic(
-                    args.skipHeader() ? payload : withHeader, args.format(), detectedDevice, args.file());
+            case BINARY_BASIC -> {
+                if (OutputFormat.BINARY.equals(args.format())) {
+                    getBinaryBasic(args.skipHeader() ? payload : withHeader, args.format(), detectedDevice, args.file());
+                } else {
+                    getBinaryBasic(payload, args.format(), detectedDevice, args.file());
+                }
+            }
             case BINARY_RESERVE -> {
                 String sdar = ReserveAreaConverter.toAscii(payload, filename, detectedDevice);
                 FileHandler.writeText(args.file(), sdar);
