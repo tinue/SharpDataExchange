@@ -108,6 +108,55 @@ public abstract class SerialHeader {
         return outputBytes;
     }
 
+    /**
+     * Scan {@code data} for a recognizable header and return the total number of bytes expected
+     * for the complete transfer (header + payload).
+     *
+     * <p>Returns -1 when:
+     * <ul>
+     *   <li>No header magic has been found yet (need more bytes)</li>
+     *   <li>The header has been found but there are not yet enough bytes to read the length field</li>
+     *   <li>The data type is CE-158 VARIABLES, whose length field is always meaningless</li>
+     * </ul>
+     *
+     * @param data bytes received so far
+     * @return total expected byte count, or -1 if unknown
+     */
+    public static int expectedTotalBytes(byte[] data) {
+        for (int i = 0; i < data.length - 3; i++) {
+            // CE-158 magic: 0x01 at i, 'C' 'O' 'M' at i+2..4
+            if (data[i] == 0x01 && i + 4 < data.length
+                    && data[i + 2] == 0x43 && data[i + 3] == 0x4F && data[i + 4] == 0x4D) {
+                if (i + 27 > data.length) {
+                    return -1; // header not yet fully received
+                }
+                try {
+                    Ce158Header h = new Ce158Header(Arrays.copyOfRange(data, i, data.length));
+                    if (h.getType() == FileType.VARIABLES) {
+                        return -1; // CE-158 VARIABLES length field is meaningless
+                    }
+                    return i + 27 + h.getLength();
+                } catch (IllegalArgumentException ignored) {
+                    // Not a valid header at this position — keep scanning
+                }
+            }
+            // PC-1600 magic: 0xFF 0x10 0x00 0x00 at i
+            if ((data[i] & 0xFF) == 0xFF && i + 3 < data.length
+                    && data[i + 1] == 0x10 && data[i + 2] == 0x00 && data[i + 3] == 0x00) {
+                if (i + 16 > data.length) {
+                    return -1; // header not yet fully received
+                }
+                try {
+                    Pc1600Header h = new Pc1600Header(Arrays.copyOfRange(data, i, data.length));
+                    return i + 16 + h.getLength();
+                } catch (IllegalArgumentException ignored) {
+                    // Not a valid header at this position — keep scanning
+                }
+            }
+        }
+        return -1;
+    }
+
     // ---- Abstract interface ----
 
     abstract char getTypeChar(FileType type);

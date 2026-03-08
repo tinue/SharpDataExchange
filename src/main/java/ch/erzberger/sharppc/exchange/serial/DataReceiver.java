@@ -1,6 +1,7 @@
 package ch.erzberger.sharppc.exchange.serial;
 
 import ch.erzberger.sharppc.exchange.cli.PocketPcDevice;
+import ch.erzberger.sharppc.exchange.header.SerialHeader;
 import lombok.extern.java.Log;
 
 import java.io.ByteArrayOutputStream;
@@ -28,6 +29,7 @@ public class DataReceiver implements ByteProcessor {
     private final CountDownLatch done = new CountDownLatch(1);
     private final long timeout;
     private Watchdog watchdog;
+    private int expectedTotal = -1; // -1 = unknown; determined from header when possible
 
     public DataReceiver(PocketPcDevice device) {
         this.timeout = device.isPC1500() ? 5000L : 500L;
@@ -42,8 +44,31 @@ public class DataReceiver implements ByteProcessor {
     @Override
     public void processBytes(byte[] bytes) {
         log.log(Level.FINEST, "Received: {0}", HexFormat.of().formatHex(bytes));
+        try {
+            buffer.write(bytes);
+        } catch (IOException ex) {
+            log.log(Level.SEVERE, "Error buffering received bytes", ex);
+        }
+
+        // Try to determine the expected byte count from the header (once, when we have enough bytes).
+        // For CE-158 VARIABLES the length field is meaningless, so expectedTotal stays -1 for those.
+        if (expectedTotal < 0) {
+            expectedTotal = SerialHeader.expectedTotalBytes(buffer.toByteArray());
+            if (expectedTotal > 0) {
+                log.log(Level.FINE, "Header parsed — expecting {0} bytes total", expectedTotal);
+            }
+        }
+
+        // If we know the total, terminate as soon as it is reached — no timeout needed.
+        if (expectedTotal > 0 && buffer.size() >= expectedTotal) {
+            log.log(Level.FINE, "All {0} bytes received — transfer complete", expectedTotal);
+            done.countDown();
+            return;
+        }
+
+        // Fall back to watchdog for VARIABLES or any unrecognised stream.
         if (watchdog == null) {
-            log.log(Level.FINE, "First bytes received — starting watchdog");
+            log.log(Level.FINE, "Starting watchdog (timeout fallback)");
             watchdog = new Watchdog(() -> {
                 log.log(Level.FINE, "Watchdog fired — transfer complete");
                 done.countDown();
@@ -52,11 +77,6 @@ public class DataReceiver implements ByteProcessor {
         } else {
             log.log(Level.FINEST, "More data received — resetting watchdog");
             watchdog.reset();
-        }
-        try {
-            buffer.write(bytes);
-        } catch (IOException ex) {
-            log.log(Level.SEVERE, "Error buffering received bytes", ex);
         }
     }
 
