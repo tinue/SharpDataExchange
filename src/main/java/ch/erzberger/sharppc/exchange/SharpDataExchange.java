@@ -85,6 +85,9 @@ public class SharpDataExchange {
         }
 
         String filename = header.getFilename();
+        if (filename != null && !filename.isBlank()) {
+            System.out.println("Getting " + filename);
+        }
         byte[] payload = sliceFrom(rawData, headerOffset + CE158_HEADER_SIZE);
 
         DataType type = new ContentDetector().detect(sliceFrom(rawData, headerOffset));
@@ -142,6 +145,9 @@ public class SharpDataExchange {
         DataType type = new ContentDetector().detect(rawData);
         log.log(Level.FINE, "Detected input type: {0}", type);
 
+        String putFilename = deriveFilename(args.file());
+        System.out.println("Putting " + putFilename);
+
         byte[] dataToSend = switch (type) {
             case ASCII_BASIC -> encodeAsciiBasic(rawData, args);
             case ASCII_RESERVE -> encodeAsciiReserve(rawData, args);
@@ -151,7 +157,7 @@ public class SharpDataExchange {
                 yield headerOffset >= 0 ? sliceFrom(rawData, headerOffset) : rawData;
             }
             case MACHINE -> SerialHeader.prependHeaderIfNecessary(
-                    rawData, args.startAddress(), args.runAddress(), args.device());
+                    rawData, args.startAddress(), args.runAddress(), args.device(), putFilename);
             default -> {
                 log.log(Level.SEVERE, "Cannot send data of type {0}", type);
                 System.exit(1);

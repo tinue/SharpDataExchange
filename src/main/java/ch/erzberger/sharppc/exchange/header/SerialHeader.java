@@ -87,7 +87,8 @@ public abstract class SerialHeader {
      * Prepend a serial header if needed (machine language only).
      */
     public static byte[] prependHeaderIfNecessary(byte[] inputBytes, Integer startAddr,
-                                                   Integer runAddr, PocketPcDevice device) {
+                                                   Integer runAddr, PocketPcDevice device,
+                                                   String filename) {
         if (startAddr == null) {
             log.log(Level.FINE, "startAddr is null, not adding a header");
             return inputBytes;
@@ -99,7 +100,7 @@ public abstract class SerialHeader {
             return inputBytes;
         }
         int effectiveRunAddr = runAddr != null ? runAddr : 0xFFFF;
-        SerialHeader newHeader = makeHeader(device, FileType.MACHINE, "", startAddr,
+        SerialHeader newHeader = makeHeader(device, FileType.MACHINE, filename, startAddr,
                 inputBytes.length, effectiveRunAddr);
         byte[] headerBytes = newHeader.getHeader();
         byte[] outputBytes = Arrays.copyOf(headerBytes, inputBytes.length + headerBytes.length);
