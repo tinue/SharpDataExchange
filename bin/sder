@@ -24,33 +24,57 @@ shift
 
 case "$VERB" in
     put)
-        # We assume the first argument after 'put' is the local filename.
-        FILE="$1"
-        shift
+        # Find the first argument that exists as a local file.
+        # This allows options like --device pc1600 to come before or after the file.
+        FILE=""
+        for arg in "$@"; do
+            if [ -f "$arg" ]; then
+                FILE="$arg"
+                break
+            fi
+        done
+
         if [ -z "$FILE" ]; then
-            echo "Usage: sder put <file> [options]"
+            echo "Error: No local file found in arguments."
+            echo "Usage: sder put [options] <file>"
             exit 1
         fi
-        BASENAME=$(basename "$FILE")
+        
+        BASENAME=$(basename -- "$FILE")
         
         echo "Transferring $FILE and JAR to $REMOTE_HOST..."
+        # Use ./ prefix to protect scp if filename starts with -
         scp "$FILE" "$REMOTE_HOST:$REMOTE_DIR/$BASENAME"
         scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
         
         echo "Executing remotely..."
-        ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR put $REMOTE_DIR/$BASENAME $@"
+        # Pass all original arguments, but replace the local FILE path with the remote path
+        # We replace the first occurrence of the filename with the remote path.
+        REMOTE_ARGS=""
+        REPLACED=0
+        for arg in "$@"; do
+            if [ "$REPLACED" -eq 0 ] && [ "$arg" = "$FILE" ]; then
+                REMOTE_ARGS="$REMOTE_ARGS $REMOTE_DIR/$BASENAME"
+                REPLACED=1
+            else
+                REMOTE_ARGS="$REMOTE_ARGS $arg"
+            fi
+        done
+        ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR put $REMOTE_ARGS"
         ;;
     get)
         echo "Transferring JAR to $REMOTE_HOST..."
         scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
         
         echo "Executing remotely..."
-        # Capture output to find out what filename the remote JAR chose
-        OUT=$(ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR get $@")
-        echo "$OUT"
+        # Execute and capture stdout
+        # We use a temporary file on the remote to ensure we only get the JAR's output
+        ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR get $@" > .sder_out
+        cat .sder_out
         
-        # Extract filename from "Saving to PROG.bas" or "saving to PROG.bas"
-        SAVED_FILE=$(echo "$OUT" | grep -i "saving to" | awk '{print $NF}')
+        # Extract filename from "Saving to PROG.bas" (case insensitive)
+        SAVED_FILE=$(grep -i "Saving to" .sder_out | sed 's/.*Saving to //i' | xargs)
+        rm .sder_out
         
         if [ -n "$SAVED_FILE" ]; then
             echo "Fetching $SAVED_FILE from $REMOTE_HOST..."
