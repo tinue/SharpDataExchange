@@ -176,8 +176,8 @@ four hardware dumps in `src/test/resources/dumps/`.
 
 The Variables payload is a **positional** sequence of variable records — no variable names
 are stored.  The PC-1500 loads values into variables in the order they were saved; the
-program must have `CLOAD,V` preceded by the same variable declarations in the same order
-as the original `CSAVE,V`.
+program must have `INPUT#` preceded by the same variable declarations in the same order
+as the original `PRINT#`.
 
 Each record is preceded by a `0x00` separator byte, including the first:
 
@@ -249,7 +249,7 @@ Examples:
 | 7 | Don't care |
 
 Not observed in any hardware dump.  Believed to be an in-RAM computation format that does
-not appear in `CSAVE,V` output.  Decode support is retained for correctness.
+not appear in `PRINT#` output.  Decode support is retained for correctness.
 
 #### String record (single-letter variables A$–Z$)
 

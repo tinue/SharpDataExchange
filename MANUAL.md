@@ -81,10 +81,10 @@ CSAVE
 
 On the **PC**, run:
 ```
-java -jar SharpDataExchange.jar get myprogram.bas
+java -jar SharpDataExchange.jar get
 ```
 
-The program is saved as readable ASCII BASIC. SharpDataExchange de-tokenizes the binary data automatically.
+The program is saved as readable ASCII BASIC. SharpDataExchange derives the filename from the received header and de-tokenizes the binary data automatically.
 
 ---
 
@@ -181,10 +181,21 @@ SharpDataExchange identifies the type of data from its content, not from the fil
 ### `get` — Receive from Pocket Computer
 
 ```
-java -jar SharpDataExchange.jar get [options] <output-file>
+java -jar SharpDataExchange.jar get [options] [<output-file>]
 ```
 
 Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
+
+If `<output-file>` is omitted, the filename is derived from the serial header sent by the Pocket Computer. If the header also lacks a filename, `unnamed` is used. A warning is printed to the console in these cases.
+
+If a filename is provided but lacks an extension (no dot in the name), the appropriate extension is appended automatically based on the data type:
+
+| Data Type | Extension |
+|---|---|
+| BASIC program | `.bas` |
+| Reserve Area | `.sdar` |
+| Variables | `.sdav` |
+| Machine code | `.bin` |
 
 | Option | Description |
 |---|---|
@@ -279,7 +290,7 @@ SharpDataExchange de-tokenizes the binary data and writes readable ASCII BASIC t
 #### Save/load the Reserve Area
 
 ```
-CSAVE"filename",A    (binary, Reserve Area type A)
+CSAVEr"filename"    (binary, Reserve Area)
 ```
 
 The Reserve Area is always saved as binary from the PC-1500. SharpDataExchange converts it to SDAR format by default.
@@ -287,7 +298,7 @@ The Reserve Area is always saved as binary from the PC-1500. SharpDataExchange c
 To send a Reserve Area file back:
 
 ```
-CLOAD
+CLOADr
 ```
 
 #### Serial utility shortcuts (optional)
@@ -516,7 +527,7 @@ On the PC-1500: `SETDEV U1,CI,CO` then `CLOADa`.
 
 ### Back up the Reserve Area from the PC-1500
 
-On the PC-1500: `SETDEV U1,CI,CO` then `CSAVE"MYAPP",A`
+On the PC-1500: `SETDEV U1,CI,CO` then `CSAVEr"MYAPP"`
 
 ```
 java -jar SharpDataExchange.jar get reserve.sdar
@@ -526,7 +537,7 @@ The Reserve Area is saved in SDAR format — a structured, human-readable file s
 
 ### Restore the Reserve Area to the PC-1500
 
-On the PC-1500: `SETDEV U1,CI,CO` then `CLOAD`
+On the PC-1500: `SETDEV U1,CI,CO` then `CLOADr`
 
 ```
 java -jar SharpDataExchange.jar put reserve.sdar

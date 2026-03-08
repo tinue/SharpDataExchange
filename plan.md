@@ -419,7 +419,7 @@ Four dumps captured and committed to `src/test/resources/dumps/`:
 
 The tape payload is a **sequential list of variable records**, one per saved variable (or one
 per DIM'd array), with no variable names — purely positional (confirmed). Each record is
-preceded by a `0x00` separator byte (including the first). The positional CLOAD behaviour
+preceded by a `0x00` separator byte (including the first). The positional `INPUT#` behaviour
 is confirmed.
 
 **Payload structure:**
@@ -478,7 +478,7 @@ string value exactly fills the slot there is no null terminator. Total record le
 - `BB$(2)*40`: `4 + 3×40 = 124`, len_minus_1 = 123 = `0x7b` ✓
 
 Variable name is **not stored** in the array record. The format is purely positional —
-on `CLOAD,V` the PC-1500 must have the arrays pre-DIM'd in the correct order.
+on `INPUT#` the PC-1500 must have the arrays pre-DIM'd in the correct order.
 
 **CE-158 length field:** Always `0x0000` raw (parsed as 1 — meaningless) for VARIABLES saves.
 The actual payload length cannot be read from the header. `VariablesConverter` must read
@@ -519,7 +519,7 @@ Parse line by line, skipping blanks and `;` comments:
 - Validate final record count against `; Count:` header; reject with a clear error if mismatch.
 
 **Note on B2H integer encoding:** Not observed in any hardware dump. Appears to be an
-in-RAM computation format only; unlikely to appear in `CSAVE,V` output. Keep decode support
+in-RAM computation format only; unlikely to appear in `PRINT#` output. Keep decode support
 for correctness.
 
 **Note on numeric arrays and named non-array variables (AA$, BB$, ...):** Only DIM'd
@@ -544,7 +544,7 @@ non-DIM'd string scalars (AA$, BB$, ...) may use different formats — not yet c
    All dump files go in `src/test/resources/dumps/` and are committed to the repository
    so they serve as both format-confirmation evidence and permanent test fixtures.
 
-   **Reserve Area (`CSAVE"x",A`)** — ✅ done: `src/test/resources/dumps/pc1500-reserve.bin`
+   **Reserve Area (`CSAVEr"x"`)** — ✅ done: `src/test/resources/dumps/pc1500-reserve.bin`
    - Payload confirmed: 188 bytes = 3×26-byte labels + 110-byte pool (no checksum)
    - Payload starts at 4008H (ROM status block 4000H–4007H not included) ✓
    - All three layers present; pool structure and token encoding verified
