@@ -15,7 +15,7 @@ Run these tests before each release, in addition to the unit tests.
 
 ## PC-1500
 
-### BASIC — put (PC receives)
+### BASIC — put (Pocket Computer receives)
 
 **Put an ASCII BASIC program:**
 
@@ -40,7 +40,7 @@ sde put depreciation-tokenized-ce158header.bin
 ```
 PC-1500: `CLOAD` — identical to the ASCII put above; SharpDataExchange detects the CE-158 header and sends the file as-is.
 
-### BASIC — get (PC sends)
+### BASIC — get (Pocket Computer sends)
 
 **Get a BASIC program as ASCII (default):**
 
