@@ -6,6 +6,7 @@ import lombok.extern.java.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HexFormat;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 
 /**
@@ -24,9 +25,9 @@ import java.util.logging.Level;
 @Log
 public class DataReceiver implements ByteProcessor {
     private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    private final CountDownLatch done = new CountDownLatch(1);
     private final long timeout;
     private Watchdog watchdog;
-    private boolean dataReady = false;
 
     public DataReceiver(PocketPcDevice device) {
         this.timeout = device.isPC1500() ? 5000L : 500L;
@@ -45,10 +46,7 @@ public class DataReceiver implements ByteProcessor {
             log.log(Level.FINE, "First bytes received — starting watchdog");
             watchdog = new Watchdog(() -> {
                 log.log(Level.FINE, "Watchdog fired — transfer complete");
-                synchronized (DataReceiver.this) {
-                    dataReady = true;
-                    notifyAll();
-                }
+                done.countDown();
             }, timeout);
             watchdog.start();
         } else {
@@ -67,15 +65,13 @@ public class DataReceiver implements ByteProcessor {
      *
      * @return all bytes received from the Pocket Computer
      */
-    public synchronized byte[] getDataWhenReady() {
+    public byte[] getDataWhenReady() {
         log.log(Level.FINE, "Waiting for data from Pocket Computer...");
-        while (!dataReady) {
-            try {
-                wait();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.log(Level.SEVERE, "Interrupted while waiting for data");
-            }
+        try {
+            done.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.log(Level.SEVERE, "Interrupted while waiting for data");
         }
         return buffer.toByteArray();
     }

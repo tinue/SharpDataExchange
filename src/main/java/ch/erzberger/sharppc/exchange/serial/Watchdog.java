@@ -20,7 +20,8 @@ public class Watchdog {
 
     public void start() {
         log.log(Level.FINEST, "Watchdog starting");
-        timerThread = new Thread(() -> {
+        // Virtual threads are daemon threads by default — no need to setDaemon().
+        timerThread = Thread.ofVirtual().start(() -> {
             try {
                 log.log(Level.FINEST, "Watchdog thread sleeping for {0} ms", delay);
                 Thread.sleep(delay);
@@ -32,8 +33,6 @@ public class Watchdog {
             log.log(Level.FINEST, "Watchdog expired, raising callback");
             handler.timerExpired();
         });
-        timerThread.setDaemon(true);
-        timerThread.start();
     }
 
     public void reset() {
