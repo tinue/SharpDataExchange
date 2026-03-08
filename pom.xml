@@ -142,6 +142,11 @@
                                         <Implementation-Title>${project.name}</Implementation-Title>
                                         <Implementation-Version>${project.version}</Implementation-Version>
                                         <Build-Time>${build.time}</Build-Time>
+                                        <!-- Suppress "restricted method" warnings from jSerialComm's
+                                             System.loadLibrary() call on Java 22+ (JEP 472).
+                                             The JVM reads this attribute from the main JAR manifest
+                                             and applies enable-native-access=ALL-UNNAMED automatically. -->
+                                        <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
                                     </manifestEntries>
                                 </transformer>
                             </transformers>
