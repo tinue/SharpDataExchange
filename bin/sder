@@ -1,0 +1,66 @@
+#!/bin/sh
+#
+# Remote execution wrapper for SharpDataExchange (sder)
+# Workaround for macOS USB/Serial RTS/CTS bug on PC-1600.
+#
+# V2.0.0, 2026-03-08
+#
+
+REMOTE_HOST="desktoppi.home.erzi.ch"
+REMOTE_JAR="/tmp/SharpDataExchange.jar"
+REMOTE_DIR="/tmp"
+
+# Find the JAR relative to this script
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+JAR_FILE="$SCRIPT_DIR/SharpDataExchange.jar"
+
+if [ ! -f "$JAR_FILE" ]; then
+    echo "Error: $JAR_FILE not found. Run 'mvn install' first."
+    exit 1
+fi
+
+VERB=$1
+shift
+
+case "$VERB" in
+    put)
+        # We assume the first argument after 'put' is the local filename.
+        FILE="$1"
+        shift
+        if [ -z "$FILE" ]; then
+            echo "Usage: sder put <file> [options]"
+            exit 1
+        fi
+        BASENAME=$(basename "$FILE")
+        
+        echo "Transferring $FILE and JAR to $REMOTE_HOST..."
+        scp "$FILE" "$REMOTE_HOST:$REMOTE_DIR/$BASENAME"
+        scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
+        
+        echo "Executing remotely..."
+        ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR put $REMOTE_DIR/$BASENAME $@"
+        ;;
+    get)
+        echo "Transferring JAR to $REMOTE_HOST..."
+        scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
+        
+        echo "Executing remotely..."
+        # Capture output to find out what filename the remote JAR chose
+        OUT=$(ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR get $@")
+        echo "$OUT"
+        
+        # Extract filename from "Saving to PROG.bas" or "saving to PROG.bas"
+        SAVED_FILE=$(echo "$OUT" | grep -i "saving to" | awk '{print $NF}')
+        
+        if [ -n "$SAVED_FILE" ]; then
+            echo "Fetching $SAVED_FILE from $REMOTE_HOST..."
+            scp "$REMOTE_HOST:$SAVED_FILE" .
+        else
+            echo "Could not detect saved filename from remote output."
+        fi
+        ;;
+    *)
+        echo "Usage: sder get|put [options]"
+        exit 1
+        ;;
+esac
