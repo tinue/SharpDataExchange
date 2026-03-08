@@ -9,16 +9,15 @@ import lombok.extern.java.Log;
  * <p>Header structure (16 bytes):
  * <pre>
  *   0x00  Magic: 0xFF 0x10 0x00 0x00
- *   0x04  Type byte: 0x21=BASIC, 0x10=MACHINE
+ *   0x04  Type byte: 0x21=BASIC, 0x10=MACHINE, 0x41=RESERVE, 0x48=VARIABLES
  *   0x05  Data length (3 bytes, little-endian)
  *   0x08  Load start address (3 bytes, little-endian, MACHINE only)
  *   0x0B  Auto-run address (3 bytes, little-endian, MACHINE only)
  *   0x0E  End marker: 0x00 0x0F
  * </pre>
  *
- * <p>Note: The type bytes for RESERVE and VARIABLES on the PC-1600 are not yet documented
- * (no official data available). These types will throw {@link UnsupportedOperationException}
- * until the correct byte values are confirmed by hardware testing.
+ * <p>Note: The type bytes for RESERVE (0x41) and VARIABLES (0x48) are assumed to be
+ * the same as for the PC-1500, pending hardware verification.
  */
 @Log
 public class Pc1600Header extends SerialHeader {
@@ -28,10 +27,6 @@ public class Pc1600Header extends SerialHeader {
     protected Pc1600Header(FileType type, String filename, int startAddr, int length, int runAddr) {
         super(type, filename, startAddr, length, runAddr);
         super.device = PocketPcDevice.PC1600;
-        if (type == FileType.RESERVE || type == FileType.VARIABLES) {
-            throw new UnsupportedOperationException(
-                    "PC-1600 " + type + " transfer type bytes are not yet known");
-        }
     }
 
     protected Pc1600Header(byte[] header) {
@@ -68,8 +63,8 @@ public class Pc1600Header extends SerialHeader {
         return switch (type) {
             case BASIC -> (char) 0x21;
             case MACHINE -> (char) 0x10;
-            default -> throw new UnsupportedOperationException(
-                    "PC-1600 type char for " + type + " is unknown");
+            case RESERVE -> 'A';
+            case VARIABLES -> 'H';
         };
     }
 
@@ -78,6 +73,8 @@ public class Pc1600Header extends SerialHeader {
         return switch (typeChar) {
             case 0x21 -> FileType.BASIC;
             case 0x10 -> FileType.MACHINE;
+            case 'A' -> FileType.RESERVE;
+            case 'H' -> FileType.VARIABLES;
             default -> throw new IllegalArgumentException(
                     "Unknown PC-1600 type char: 0x" + Integer.toHexString(typeChar));
         };

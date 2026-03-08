@@ -539,9 +539,8 @@ non-DIM'd string scalars (AA$, BB$, ...) may use different formats — not yet c
 3. ✅ **Headers + detection**: port `SerialHeader`/`Ce158Header`/`Pc1600Header`; implement `ContentDetector`; write header and detector tests — 27 tests passing
    - PC-1600 `getHeader()` bug fixed: now uses correct 3-byte little-endian encoding (original used 2-byte big-endian)
    - PC-1600 end marker `0x000F` added to `getHeader()` output
-   - PC-1600 RESERVE/VARIABLES type bytes remain unknown; constructor throws `UnsupportedOperationException` with a clear message pending hardware research
-4. ✅ **Hardware dumps**: capture raw binary files
-   from real PC-1500 hardware to confirm the Reserve Area payload start address and to
+   - PC-1600 RESERVE (0x41) and VARIABLES (0x48) type bytes assumed to match PC-1500, pending hardware verification
+   4. ✅ **Hardware dumps**: capture raw binary files   from real PC-1500 hardware to confirm the Reserve Area payload start address and to
    fully spec the Variables binary format. Use `SETDEV U1,CI,CO` first, then **SharpCommunicator**
    `--out-file <file> --out-format binary` to write the raw binary including the CE-158 header.
 
