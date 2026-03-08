@@ -191,6 +191,7 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 | `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600` |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `asciicompact`, `binary` |
+| `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). Not recommended — see warning below. |
 | `-v`, `--verbose` | Verbose logging |
 | `-vv`, `--debug` | Debug logging |
 | `-V`, `--version` | Print version and exit |
@@ -200,9 +201,11 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 
 | Format | Description |
 |---|---|
-| `ascii` | Human-readable ASCII. BASIC programs use full keyword names. Reserve Area uses SDAR hex format. Variables use SDAV key-value format. Default. |
+| `ascii` | Human-readable ASCII. BASIC programs use full keyword names. Reserve Area uses SDAR format. Variables use SDAV format. Default. |
 | `asciicompact` | ASCII BASIC with keywords abbreviated to their shortest form (e.g. `PRINT` → `P.`). BASIC only. |
-| `binary` | Raw binary as received, with the original file header. |
+| `binary` | Raw binary as received, including the serial header. The resulting file can be sent back with `put` without re-tokenizing. |
+
+> **Warning — `--skip-header`:** Without the header, SharpDataExchange cannot identify the file type and will refuse to load it. Only use this option when you need a raw payload for an external tool. A warning is printed to the console when `--skip-header` is active.
 
 ### `put` — Send to Pocket Computer
 
@@ -428,9 +431,9 @@ This is useful for programs that need to fit into 80 characters per line for emu
 
 ### Binary
 
-Raw binary format as used by the Pocket Computer's cassette interface, with a file header. The PC-1500 uses a 27-byte CE-158 header; the PC-1600 uses a 16-byte header.
+Raw binary format as used by the Pocket Computer's cassette interface. The PC-1500 uses a 27-byte CE-158 header; the PC-1600 uses a 16-byte header.
 
-Use `--format binary` with `get` to preserve the original binary file exactly as received.
+Use `--format binary` with `get` to save the file in binary form. The header is included by default, making the file directly usable with `put` without re-tokenizing. Use `--skip-header` to omit it — but note that SharpDataExchange cannot identify or reload a headerless binary file, and will print a warning when this option is used.
 
 ### Reserve Area (SDAR)
 
