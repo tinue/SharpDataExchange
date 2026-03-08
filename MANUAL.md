@@ -188,7 +188,7 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600` |
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Required to configure the serial port (baud rate and handshaking) before data arrives. The received header is used for decoding, so an incorrect `--device` does not affect the output content. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `asciicompact`, `binary` |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). Not recommended — see warning below. |
@@ -217,7 +217,7 @@ Reads `<input-file>` and sends it to the Pocket Computer.
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600` |
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Optional when sending a binary file that already has a header — the device is inferred from the header automatically. Required for ASCII input and for headerless machine code. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Override detected input format: `ascii`, `binary` |
 | `--start-address <hex>` | Load address for machine language programs (e.g. `38C5`) |
@@ -229,6 +229,8 @@ Reads `<input-file>` and sends it to the Pocket Computer.
 | `-h`, `--help` | Print help |
 
 The file format is detected automatically from the file content. Use `--format` only if detection fails or to override.
+
+When sending a binary file with a CE-158 or PC-1600 header, `--device` can be omitted: SharpDataExchange reads the device type from the header and configures the serial port accordingly.
 
 ---
 

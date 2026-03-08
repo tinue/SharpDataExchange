@@ -88,8 +88,11 @@ public class SharpDataExchange {
         byte[] withHeader = sliceFrom(rawData, headerOffset);
         byte[] payload = sliceFrom(rawData, headerOffset + header.getHeader().length);
 
+        // Use the device identified in the header for decoding — more reliable than --device.
+        PocketPcDevice detectedDevice = header.getDevice();
+
         DataType type = new ContentDetector().detect(withHeader);
-        log.log(Level.FINE, "Detected type: {0}", type);
+        log.log(Level.FINE, "Detected type: {0}, device: {1}", new Object[]{type, detectedDevice});
 
         if (args.skipHeader() && OutputFormat.BINARY.equals(args.format())) {
             System.err.println("WARNING: --skip-header omits the serial header from the saved file." +
@@ -98,13 +101,13 @@ public class SharpDataExchange {
 
         switch (type) {
             case BINARY_BASIC -> getBinaryBasic(
-                    args.skipHeader() ? payload : withHeader, args.format(), args.device(), args.file());
+                    args.skipHeader() ? payload : withHeader, args.format(), detectedDevice, args.file());
             case BINARY_RESERVE -> {
-                String sdar = ReserveAreaConverter.toAscii(payload, filename, args.device());
+                String sdar = ReserveAreaConverter.toAscii(payload, filename, detectedDevice);
                 FileHandler.writeText(args.file(), sdar);
             }
             case BINARY_VARS -> {
-                String sdav = VariablesConverter.toAscii(payload, filename, args.device());
+                String sdav = VariablesConverter.toAscii(payload, filename, detectedDevice);
                 FileHandler.writeText(args.file(), sdav);
             }
             case ASCII_BASIC -> {
@@ -149,6 +152,17 @@ public class SharpDataExchange {
         DataType type = new ContentDetector().detect(rawData);
         log.log(Level.FINE, "Detected input type: {0}", type);
 
+        // For binary files with a recognizable header, infer the target device from the header.
+        // --device is then optional and only required for ASCII input or headerless machine code.
+        PocketPcDevice effectiveDevice = args.device();
+        if (headerOffset >= 0) {
+            SerialHeader existingHeader = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
+            if (existingHeader != null && existingHeader.getDevice() != null) {
+                effectiveDevice = existingHeader.getDevice();
+                log.log(Level.FINE, "Device inferred from binary header: {0}", effectiveDevice);
+            }
+        }
+
         String putFilename = deriveFilename(args.file());
         System.out.println("Putting " + putFilename);
 
@@ -161,7 +175,7 @@ public class SharpDataExchange {
                 yield headerOffset >= 0 ? sliceFrom(rawData, headerOffset) : rawData;
             }
             case MACHINE -> SerialHeader.prependHeaderIfNecessary(
-                    rawData, args.startAddress(), args.runAddress(), args.device(), putFilename);
+                    rawData, args.startAddress(), args.runAddress(), effectiveDevice, putFilename);
             default -> {
                 log.log(Level.SEVERE, "Cannot send data of type {0}", type);
                 System.exit(1);
@@ -170,8 +184,8 @@ public class SharpDataExchange {
         };
 
         // Step 3: send
-        SerialPortWrapper port = openPort(args.device(), args.port(), null);
-        DataSender sender = new DataSender(port, args.device());
+        SerialPortWrapper port = openPort(effectiveDevice, args.port(), null);
+        DataSender sender = new DataSender(port, effectiveDevice);
         sender.sendData(dataToSend);
         port.closePort();
         log.log(Level.FINE, "Sent {0} bytes", dataToSend.length);
