@@ -178,6 +178,12 @@ class CliParserTest {
     }
 
     @Test
+    @DisplayName("terminal rejects --format")
+    void terminalRejectsFormat() {
+        assertNull(parser.parse(new String[]{"terminal", "-f", "ascii"}));
+    }
+
+    @Test
     @DisplayName("put without file returns null")
     void putWithoutFile() {
         assertNull(parser.parse(new String[]{"put"}));

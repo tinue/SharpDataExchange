@@ -99,6 +99,10 @@ public class CliParser {
         // Format
         OutputFormat format = null;
         if (line.hasOption("format")) {
+            if ("terminal".equals(verb)) {
+                formatter.printHelp(USAGE, null, options, "ERROR: --format is not valid for terminal mode");
+                return null;
+            }
             format = parseFormat(line.getOptionValue("format"), verb, options, formatter);
             if (format == null) return null;
         } else if ("get".equals(verb)) {
