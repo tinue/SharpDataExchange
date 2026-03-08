@@ -71,26 +71,24 @@ public class SharpDataExchange {
 
         // Step 2: detect → convert → write
         int headerOffset = findHeaderOffset(rawData);
-        if (headerOffset < 0) {
-            log.log(Level.SEVERE, "No recognizable header in received data");
-            System.exit(1);
+        SerialHeader header = null;
+        if (headerOffset >= 0) {
+            header = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
         }
 
-        SerialHeader header = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
         if (header == null) {
-            log.log(Level.SEVERE, "Could not parse header");
-            System.exit(1);
+            System.err.println("WARNING: No recognizable header in received data");
         }
 
-        String filename = header.getFilename();
-        if (filename != null && !filename.isBlank()) {
-            System.out.println("Getting " + filename);
-        }
-        byte[] withHeader = sliceFrom(rawData, headerOffset);
-        byte[] payload = sliceFrom(rawData, headerOffset + header.getHeader().length);
+        String filename = header != null ? header.getFilename() : null;
+        byte[] withHeader = headerOffset >= 0 ? sliceFrom(rawData, headerOffset) : rawData;
+        byte[] payload = (header != null && headerOffset >= 0)
+                ? sliceFrom(rawData, headerOffset + header.getHeader().length)
+                : rawData;
 
         // Use the device identified in the header for decoding — more reliable than --device.
-        PocketPcDevice detectedDevice = header.getDevice();
+        // Fall back to CLI arg if header is missing.
+        PocketPcDevice detectedDevice = header != null ? header.getDevice() : args.device();
 
         DataType type = new ContentDetector().detect(withHeader);
         log.log(Level.FINE, "Detected type: {0}, device: {1}", new Object[]{type, detectedDevice});
@@ -100,34 +98,75 @@ public class SharpDataExchange {
                     " The file cannot be identified or reloaded by SharpDataExchange without it.");
         }
 
+        String finalFile = args.file();
+        if (finalFile == null || finalFile.isEmpty()) {
+            if (filename != null && !filename.isBlank()) {
+                finalFile = filename;
+                finalFile = appendExtension(finalFile, type);
+                System.out.println("Saving to " + finalFile);
+            } else {
+                finalFile = "unnamed";
+                finalFile = appendExtension(finalFile, type);
+                System.err.println("WARNING: No filename provided on command line or in header, saving to " + finalFile);
+            }
+        } else {
+            if (!finalFile.contains(".")) {
+                finalFile = appendExtension(finalFile, type);
+            }
+            System.out.println("Saving to " + finalFile);
+        }
+
         switch (type) {
             case BINARY_BASIC -> {
                 if (OutputFormat.BINARY.equals(args.format())) {
-                    getBinaryBasic(args.skipHeader() ? payload : withHeader, args.format(), detectedDevice, args.file());
+                    getBinaryBasic(args.skipHeader() ? payload : withHeader, args.format(), detectedDevice, finalFile);
                 } else {
-                    getBinaryBasic(payload, args.format(), detectedDevice, args.file());
+                    if (header == null) {
+                        log.log(Level.SEVERE, "Cannot detokenize BASIC without a header");
+                        System.exit(1);
+                    }
+                    getBinaryBasic(payload, args.format(), detectedDevice, finalFile);
                 }
             }
             case BINARY_RESERVE -> {
-                String sdar = ReserveAreaConverter.toAscii(payload, filename, detectedDevice);
-                FileHandler.writeText(args.file(), sdar);
+                if (OutputFormat.BINARY.equals(args.format())) {
+                    FileHandler.writeBinary(finalFile, args.skipHeader() ? payload : withHeader);
+                } else {
+                    String sdar = ReserveAreaConverter.toAscii(payload, filename, detectedDevice);
+                    FileHandler.writeText(finalFile, sdar);
+                }
             }
             case BINARY_VARS -> {
-                String sdav = VariablesConverter.toAscii(payload, filename, detectedDevice);
-                FileHandler.writeText(args.file(), sdav);
+                if (OutputFormat.BINARY.equals(args.format())) {
+                    FileHandler.writeBinary(finalFile, args.skipHeader() ? payload : withHeader);
+                } else {
+                    String sdav = VariablesConverter.toAscii(payload, filename, detectedDevice);
+                    FileHandler.writeText(finalFile, sdav);
+                }
             }
             case ASCII_BASIC -> {
                 String text = new String(rawData, StandardCharsets.US_ASCII);
-                FileHandler.writeText(args.file(), text);
+                FileHandler.writeText(finalFile, text);
             }
-            case MACHINE -> FileHandler.writeBinary(args.file(),
-                    args.skipHeader() ? payload : withHeader);
+            case MACHINE, UNKNOWN -> FileHandler.writeBinary(finalFile,
+                    (args.skipHeader() || header == null) ? payload : withHeader);
             default -> {
                 log.log(Level.SEVERE, "Unsupported data type for get: {0}", type);
                 System.exit(1);
             }
         }
-        log.log(Level.FINE, "Written to: {0}", args.file());
+        log.log(Level.FINE, "Written to: {0}", finalFile);
+    }
+
+    private static String appendExtension(String filename, DataType type) {
+        String ext = switch (type) {
+            case BINARY_BASIC, ASCII_BASIC -> ".bas";
+            case BINARY_RESERVE, ASCII_RESERVE -> ".sdar";
+            case BINARY_VARS, ASCII_VARS -> ".sdav";
+            case MACHINE -> ".bin";
+            default -> "";
+        };
+        return filename + ext;
     }
 
     private static void getBinaryBasic(byte[] payload, OutputFormat format, PocketPcDevice device, String outFile) {
