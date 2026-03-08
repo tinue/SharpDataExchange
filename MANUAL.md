@@ -423,9 +423,17 @@ java -jar SharpDataExchange.jar terminal [options]
 
 Starts a passive terminal session. All data received from the Pocket Computer is displayed on the console, and all keyboard input is sent back to the Pocket Computer.
 
-This is useful for debugging serial communication or interacting with custom BASIC programs that use `PRINT#` and `INPUT#` for user interaction.
+Non-printable characters (control codes, and all characters with values > 127) are displayed in hex format (e.g., `0x0B`).
 
-**To exit:** Press the **ESC** key twice in rapid succession.
+#### PC-1600 Redirection
+
+On the PC-1600, terminal mode can be used to redirect standard I/O:
+
+*   **Output:** Use `SETDEV "COM1:",PO` then `LLIST` to print a program listing to your host console.
+*   **Input:** Use `SETDEV "COM1:",KI` to provide input for an `INPUT` statement from your host keyboard.
+*   **Terminal I/O:** By combining `PRINT#` and `INPUT` (with KI redirected), you can use the host PC as a multi-line terminal for the Pocket Computer.
+
+**To exit:** Press the **ESC** key twice.
 
 | Option | Description |
 |---|---|

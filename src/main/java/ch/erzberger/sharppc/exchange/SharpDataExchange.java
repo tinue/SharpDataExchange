@@ -298,7 +298,7 @@ public class SharpDataExchange {
             @Override
             public void processByte(byte b) {
                 int val = b & 0xFF;
-                // Printable ASCII or line breaks
+                // Printable ASCII (excluding 127) or line breaks
                 if ((val >= 32 && val <= 126) || val == 10 || val == 13) {
                     if (lastWasHex) {
                         System.out.print(" ");
@@ -313,12 +313,17 @@ public class SharpDataExchange {
             }
         })) {
             int escapeCount = 0;
+            long lastEscapeTime = 0;
             while (true) {
                 if (System.in.available() > 0) {
                     int c = System.in.read();
                     if (c == 27) { // ESC
-                        escapeCount++;
-                        if (escapeCount >= 2) break;
+                        long now = System.currentTimeMillis();
+                        if (escapeCount > 0 && (now - lastEscapeTime) < 500) {
+                            break; // Double ESC within 500ms
+                        }
+                        escapeCount = 1;
+                        lastEscapeTime = now;
                     } else {
                         escapeCount = 0;
                         port.writeBytes(new byte[]{(byte) c});

@@ -86,8 +86,10 @@ case "$VERB" in
         echo "Transferring JAR to $REMOTE_HOST..."
         scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
         
-        echo "Executing remotely..."
-        ssh -t "$REMOTE_HOST" "java -jar $REMOTE_JAR terminal $@"
+        echo "Executing remotely (raw mode)..."
+        # stty raw -echo allows the JAR to receive individual keypresses (like ESC) immediately.
+        # stty sane restores the terminal afterwards.
+        ssh -t "$REMOTE_HOST" "stty raw -echo; java -jar $REMOTE_JAR terminal $@; stty sane"
         ;;
     *)
         echo "Usage: sder get|put|terminal [options]"
