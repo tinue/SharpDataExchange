@@ -127,18 +127,9 @@ class Pc1600HeaderTest {
     }
 
     @Test
-    @DisplayName("VARIABLES header round-trip")
-    void variablesRoundTrip() {
-        Pc1600Header original = new Pc1600Header(SerialHeader.FileType.VARIABLES, "", 0, 80, 0);
-        Pc1600Header parsed = new Pc1600Header(original.getHeader());
-        assertEquals(SerialHeader.FileType.VARIABLES, parsed.getType());
-        assertEquals(80, parsed.getLength());
-    }
-
-    @Test
-    @DisplayName("VARIABLES type byte is 0x48 ('H')")
-    void variablesTypeByte() {
-        Pc1600Header h = new Pc1600Header(SerialHeader.FileType.VARIABLES, "", 0, 100, 0);
-        assertEquals(0x48, h.getHeader()[4] & 0xFF);
+    @DisplayName("VARIABLES type throws UnsupportedOperationException")
+    void variablesTypeUnsupported() {
+        assertThrows(UnsupportedOperationException.class, () ->
+                new Pc1600Header(SerialHeader.FileType.VARIABLES, "", 0, 80, 0));
     }
 }

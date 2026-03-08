@@ -148,9 +148,6 @@ public abstract class SerialHeader {
                 }
                 try {
                     Pc1600Header h = new Pc1600Header(Arrays.copyOfRange(data, i, data.length));
-                    if (h.getType() == FileType.VARIABLES) {
-                        return -1; // Assume PC-1600 VARIABLES also has meaningless length
-                    }
                     return i + 16 + h.getLength();
                 } catch (IllegalArgumentException ignored) {
                     // Not a valid header at this position — keep scanning
