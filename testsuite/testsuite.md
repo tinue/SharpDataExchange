@@ -4,7 +4,7 @@ Run these tests before each release, in addition to the unit tests.
 
 **Notes:**
 
-- `sde` is a shortcut for `java -jar ../target/SharpDataExchange.jar "$@"`
+- `sde` is a shortcut for `java -jar ~/Applications/PocketPc/SharpDataExchange.jar "$@"`
 - All test programs are in the `testsuite/` directory alongside this file.
 - SharpDataExchange detects file format from content automatically — no format flags needed for the common cases.
 - `put` always sends to the Pocket Computer; `get` always receives from it. There is no disk-to-disk conversion mode.

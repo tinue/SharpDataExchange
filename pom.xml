@@ -101,6 +101,30 @@
 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>deploy-local</id>
+                        <phase>install</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${user.home}/Applications/PocketPc"/>
+                                <copy file="${project.build.directory}/${project.build.finalName}.jar"
+                                      todir="${user.home}/Applications/PocketPc"
+                                      overwrite="true"/>
+                                <echo>Installed to ${user.home}/Applications/PocketPc/${project.build.finalName}.jar</echo>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>${version.maven-shade-plugin}</version>
                 <executions>
