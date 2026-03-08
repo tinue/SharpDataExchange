@@ -292,9 +292,25 @@ public class SharpDataExchange {
     private static void runTerminal(CliArgs args) {
         System.out.println("Terminal mode active (" + args.device() + "). Press ESC twice to exit.");
 
-        try (SerialPortWrapper port = openPort(args.device(), args.port(), b -> {
-            System.out.print((char) b);
-            System.out.flush();
+        try (SerialPortWrapper port = openPort(args.device(), args.port(), new ch.erzberger.sharppc.exchange.serial.ByteProcessor() {
+            private boolean lastWasHex = false;
+
+            @Override
+            public void processByte(byte b) {
+                int val = b & 0xFF;
+                // Printable ASCII or line breaks
+                if ((val >= 32 && val <= 126) || val == 10 || val == 13) {
+                    if (lastWasHex) {
+                        System.out.print(" ");
+                    }
+                    System.out.print((char) val);
+                    lastWasHex = false;
+                } else {
+                    System.out.printf(" 0x%02X", val);
+                    lastWasHex = true;
+                }
+                System.out.flush();
+            }
         })) {
             int escapeCount = 0;
             while (true) {
