@@ -33,7 +33,9 @@ public class AsciiBasicTokenizer {
         String[] lines = asciiBasic.split("\\r?\\n", -1);
         StringBuilder expanded = new StringBuilder();
         for (String line : lines) {
-            expanded.append(AbbreviationExpander.expand(line, registry)).append('\n');
+            // Strip leading/trailing whitespace: the ANTLR grammar expects the line
+            // number to appear at column 0, but some editors and list outputs indent lines.
+            expanded.append(AbbreviationExpander.expand(line.strip(), registry)).append('\n');
         }
         SharpBasicLexer lexer = new SharpBasicLexer(CharStreams.fromString(expanded.toString()));
         SharpBasicParser parser = new SharpBasicParser(new CommonTokenStream(lexer));
