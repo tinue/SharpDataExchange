@@ -162,7 +162,7 @@ public class CliParser {
         options.addOption(Option.builder("p").longOpt("port")
                 .desc("Serial port (auto-detected if omitted)").hasArg().build());
         options.addOption(Option.builder("f").longOpt("format")
-                .desc("Format: ascii (default for get), asciicompact, binary").hasArg().build());
+                .desc("Format: ascii (default for get), binary").hasArg().build());
         options.addOption(Option.builder().longOpt("start-address")
                 .desc("Machine language load address (hex, e.g. 38C5)").hasArg().build());
         options.addOption(Option.builder().longOpt("run-address")
@@ -190,21 +190,12 @@ public class CliParser {
     private OutputFormat parseFormat(String value, String verb, Options options, HelpFormatter formatter) {
         return switch (value.toLowerCase()) {
             case "ascii" -> OutputFormat.ASCII;
-            case "asciicompact" -> {
-                if ("put".equals(verb)) {
-                    formatter.printHelp(USAGE, null, options,
-                            "ERROR: Format 'asciicompact' is not valid for put");
-                    yield null;
-                }
-                yield OutputFormat.ASCIICOMPACT;
-            }
             case "binary" -> OutputFormat.BINARY;
             default -> {
-                formatter.printHelp(USAGE, null, options,
-                        "ERROR: Unknown format '" + value + "' (expected ascii, asciicompact, binary)");
+                System.err.println("ERROR: Unknown format '" + value + "' (expected ascii, binary)");
                 yield null;
             }
-        };
+            };
     }
 
     /**

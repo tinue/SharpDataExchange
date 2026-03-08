@@ -63,9 +63,10 @@ public class SharpDataExchange {
     private static void runGet(CliArgs args) {
         // Step 1: receive all bytes from the Pocket Computer
         DataReceiver receiver = new DataReceiver(args.device());
-        SerialPortWrapper port = openPort(args.device(), args.port(), receiver);
-        byte[] rawData = receiver.getDataWhenReady();
-        port.closePort();
+        byte[] rawData;
+        try (SerialPortWrapper port = openPort(args.device(), args.port(), receiver)) {
+            rawData = receiver.getDataWhenReady();
+        }
         log.log(Level.FINE, "Received {0} bytes", rawData.length);
 
         // Step 2: detect → convert → write
@@ -129,7 +130,7 @@ public class SharpDataExchange {
             FileHandler.writeBinary(outFile, payload);
             return;
         }
-        // ASCII / ASCIICOMPACT: detokenize
+        // ASCII: detokenize
         KeywordRegistry registry = device.isPC1600()
                 ? KeywordRegistry.forPc1600()
                 : KeywordRegistry.forPc1500();
@@ -184,10 +185,10 @@ public class SharpDataExchange {
         };
 
         // Step 3: send
-        SerialPortWrapper port = openPort(effectiveDevice, args.port(), null);
-        DataSender sender = new DataSender(port, effectiveDevice);
-        sender.sendData(dataToSend);
-        port.closePort();
+        try (SerialPortWrapper port = openPort(effectiveDevice, args.port(), null)) {
+            DataSender sender = new DataSender(port, effectiveDevice);
+            sender.sendData(dataToSend);
+        }
         log.log(Level.FINE, "Sent {0} bytes", dataToSend.length);
     }
 

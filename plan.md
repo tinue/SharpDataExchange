@@ -38,7 +38,7 @@ Common options:
   -h, --help                 Print this help
 
 Options for `get`:
-  -f, --format <format>      Output format: ascii (default), asciicompact, binary
+  -f, --format <format>      Output format: ascii (default), binary
 
 Options for `put`:
   -f, --format <format>      Override detected input format: ascii, binary
@@ -70,7 +70,7 @@ SharpDataExchange/
     │   │   ├── cli/
     │   │   │   ├── CliArgs.java              # record DTO
     │   │   │   ├── CliParser.java            # commons-cli wiring
-    │   │   │   ├── OutputFormat.java         # ASCII | ASCIICOMPACT | BINARY
+    │   │   │   ├── OutputFormat.java         # ASCII | BINARY
     │   │   │   └── PocketPcDevice.java       # PC1500 | PC1500A | PC1600
     │   │   ├── serial/
     │   │   │   ├── ByteProcessor.java        # port from SharpCommunicator

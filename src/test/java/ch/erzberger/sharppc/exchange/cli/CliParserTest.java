@@ -69,14 +69,6 @@ class CliParserTest {
     }
 
     @Test
-    @DisplayName("get -f asciicompact sets ASCIICOMPACT format")
-    void getWithAsciiCompactFormat() {
-        CliArgs args = parser.parse(new String[]{"get", "-f", "asciicompact", "output.bas"});
-        assertNotNull(args);
-        assertEquals(OutputFormat.ASCIICOMPACT, args.format());
-    }
-
-    @Test
     @DisplayName("get -p /dev/ttyUSB0 sets port")
     void getWithPort() {
         CliArgs args = parser.parse(new String[]{"get", "-p", "/dev/ttyUSB0", "output.bas"});
@@ -189,12 +181,6 @@ class CliParserTest {
     @DisplayName("Unknown format returns null")
     void unknownFormat() {
         assertNull(parser.parse(new String[]{"get", "-f", "xml", "out.bas"}));
-    }
-
-    @Test
-    @DisplayName("asciicompact format rejected for put")
-    void asciiCompactNotAllowedForPut() {
-        assertNull(parser.parse(new String[]{"put", "-f", "asciicompact", "prog.bas"}));
     }
 
     @Test

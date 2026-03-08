@@ -14,9 +14,13 @@ import static com.fazecast.jSerialComm.SerialPort.FLOW_CONTROL_RTS_ENABLED;
 
 /**
  * Helper for serial port access. Auto-detects the port when no name is given.
+ *
+ * <p>Implements {@link AutoCloseable} to ensure the serial port is properly released
+ * when used in a try-with-resources block. Throws {@link SerialException} for
+ * port access or configuration errors.
  */
 @Log
-public class SerialPortWrapper {
+public class SerialPortWrapper implements AutoCloseable {
     private final SerialPort port;
     private ByteProcessor byteProcessor;
 
@@ -39,7 +43,7 @@ public class SerialPortWrapper {
             this.port = detectPort(portName);
         }
         if (port == null) {
-            throw new NoClassDefFoundError("Could not open serial port");
+            throw new SerialException("Could not open serial port");
         }
     }
 
@@ -107,8 +111,15 @@ public class SerialPortWrapper {
         }
     }
 
+    @Override
+    public void close() {
+        if (port != null && port.isOpen()) {
+            port.closePort();
+        }
+    }
+
     public void closePort() {
-        port.closePort();
+        close();
     }
 
     /**

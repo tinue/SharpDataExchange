@@ -190,7 +190,7 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 |---|---|
 | `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Required to configure the serial port (baud rate and handshaking) before data arrives. The received header is used for decoding, so an incorrect `--device` does not affect the output content. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
-| `-f`, `--format <format>` | Output format: `ascii` (default), `asciicompact`, `binary` |
+| `-f`, `--format <format>` | Output format: `ascii` (default), `binary` |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). Not recommended — see warning below. |
 | `-v`, `--verbose` | Verbose logging |
 | `-vv`, `--debug` | Debug logging |
@@ -202,7 +202,6 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 | Format | Description |
 |---|---|
 | `ascii` | Human-readable ASCII. BASIC programs use full keyword names. Reserve Area uses SDAR format. Variables use SDAV format. Default. |
-| `asciicompact` | ASCII BASIC with keywords abbreviated to their shortest form (e.g. `PRINT` → `P.`). BASIC only. |
 | `binary` | Raw binary as received, including the serial header. The resulting file can be sent back with `put` without re-tokenizing. |
 
 > **Warning — `--skip-header`:** Without the header, SharpDataExchange cannot identify the file type and will refuse to load it. Only use this option when you need a raw payload for an external tool. A warning is printed to the console when `--skip-header` is active.
@@ -421,16 +420,6 @@ Standard Sharp BASIC source code, one line per line number:
 
 Full keyword names are used (not abbreviations). This is the default output of `get` for all BASIC programs, whether they were sent from the Pocket Computer in binary or ASCII mode.
 
-The compact variant (`--format asciicompact`) abbreviates keywords to their shortest dotted form:
-
-```
-10F.I=1T.10
-20P.I
-30N.I
-```
-
-This is useful for programs that need to fit into 80 characters per line for emulator keyboard entry.
-
 ### Binary
 
 Raw binary format as used by the Pocket Computer's cassette interface. The PC-1500 uses a 27-byte CE-158 header; the PC-1600 uses a 16-byte header.
@@ -567,7 +556,7 @@ java -jar SharpDataExchange.jar get myprogram.bas --port /dev/cu.usbserial-A5028
 The serial port was not found. Check that the CE-158X or USB/UART adapter is connected. Use `--port` to specify the port explicitly.
 
 **`ERROR 67` on the PC-1500 when loading ASCII**
-A line in the program exceeds 80 characters. Use `--format asciicompact` to shorten lines, or load as binary instead (omit `a` from `CLOADa`).
+A line in the program exceeds 80 characters. Load as binary instead (omit `a` from `CLOADa`).
 
 **`ERROR 61` on the PC-1500 when loading binary**
 The binary file lacks a CE-158 header. SharpDataExchange adds the header automatically when sending; this error should not occur with files produced by `get`. If sending a third-party binary file, ensure it either has a header or supply `--start-address`.

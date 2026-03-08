@@ -22,6 +22,9 @@ import java.util.Optional;
  * </ul>
  *
  * <p>ASCII format: SDAR text (see plan.md for full spec).
+ *
+ * <p>Throws {@link IllegalArgumentException} for malformed input or if the
+ * tokenized pool size exceeds the hardware limit.
  */
 @Log
 public class ReserveAreaConverter {
