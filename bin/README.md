@@ -21,4 +21,4 @@ java -jar /path/to/your/project/bin/SharpDataExchange.jar "$@"
 ```
 
 Example for `sder` (Remote):
-The `sder` script requires `ssh` and `scp` access to a remote host where the serial adapter is connected. It automatically transfers the JAR and data files, executes the command remotely, and (for `get`) fetches the resulting file back to your local machine.
+The `sder` script requires `ssh` and `scp` access to a remote host where the serial adapter is connected. It automatically transfers the JAR and data files, executes the command remotely, and (for `get`) fetches the resulting file back to your local machine. Supports `get`, `put`, and `terminal`.

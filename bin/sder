@@ -68,11 +68,10 @@ case "$VERB" in
         
         echo "Executing remotely..."
         # Execute and capture stdout
-        # We use a temporary file on the remote to ensure we only get the JAR's output
         ssh "$REMOTE_HOST" "java -jar $REMOTE_JAR get $@" > .sder_out
         cat .sder_out
         
-        # Extract filename from "Saving to PROG.bas" (case insensitive)
+        # Extract filename from "Saving to PROG.bas"
         SAVED_FILE=$(grep -i "Saving to" .sder_out | sed 's/.*Saving to //i' | xargs)
         rm .sder_out
         
@@ -83,8 +82,15 @@ case "$VERB" in
             echo "Could not detect saved filename from remote output."
         fi
         ;;
+    terminal)
+        echo "Transferring JAR to $REMOTE_HOST..."
+        scp "$JAR_FILE" "$REMOTE_HOST:$REMOTE_JAR"
+        
+        echo "Executing remotely..."
+        ssh -t "$REMOTE_HOST" "java -jar $REMOTE_JAR terminal $@"
+        ;;
     *)
-        echo "Usage: sder get|put [options]"
+        echo "Usage: sder get|put|terminal [options]"
         exit 1
         ;;
 esac
