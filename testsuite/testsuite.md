@@ -59,11 +59,11 @@ Compare `deptest.bas` with `depreciation.bas`. Content should be identical; spac
 **Get a BASIC program as raw binary:**
 
 ```
-sde get --format binary deptest.bin
+sde get --format binary --include-header deptest.bin
 ```
-PC-1500: `CSAVE"DEPRECIATION"`
+PC-1500: `CSAVE"depreciation"`
 
-Compare `deptest.bin` with `depreciation-tokenized-ce158header.bin`. There will be minor differences in two header bytes that the PC-1500 writes as internal memory pointers (documented as "don't care" in the CE-158 manual) — this is expected.
+Compare `deptest.bin` with `depreciation-tokenized-ce158header.bin`. The filename in the header must match (`depreciation`, lower case). There will be minor differences in two header bytes that the PC-1500 writes as internal memory pointers (documented as "don't care" in the CE-158 manual) — this is expected.
 
 ### BASIC — line length test
 
@@ -166,11 +166,11 @@ Compare `deptest.bas` with `depreciation.bas` (content should match, spacing may
 **Get a BASIC program as raw binary, then load it back:**
 
 ```
-sde get --format binary --device pc1600 deptest.bin
+sde get --format binary --include-header --device pc1600 deptest.bin
 ```
 PC-1600: `SAVE "COM1:"`
 
-Then load it back:
+Compare `deptest.bin` with `depreciation-tokenized-pc1600header.bin`. Then load it back:
 
 PC-1600: `Def-L`
 
