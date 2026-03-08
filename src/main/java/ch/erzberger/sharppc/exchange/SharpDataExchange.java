@@ -49,8 +49,10 @@ public class SharpDataExchange {
         try {
             if ("get".equals(cliArgs.verb())) {
                 runGet(cliArgs);
-            } else {
+            } else if ("put".equals(cliArgs.verb())) {
                 runPut(cliArgs);
+            } else if ("terminal".equals(cliArgs.verb())) {
+                runTerminal(cliArgs);
             }
         } catch (Exception e) {
             log.log(Level.SEVERE, "Fatal error: {0}", e.getMessage());
@@ -64,7 +66,7 @@ public class SharpDataExchange {
         // Step 1: receive all bytes from the Pocket Computer
         DataReceiver receiver = new DataReceiver(args.device());
         byte[] rawData;
-        try (SerialPortWrapper port = openPort(args.device(), args.port(), receiver)) {
+        try (SerialPortWrapper port = openPort(args.device(), args.port(), (ch.erzberger.sharppc.exchange.serial.ByteProcessor) receiver)) {
             rawData = receiver.getDataWhenReady();
         }
         log.log(Level.FINE, "Received {0} bytes", rawData.length);
@@ -229,7 +231,7 @@ public class SharpDataExchange {
         };
 
         // Step 3: send
-        try (SerialPortWrapper port = openPort(effectiveDevice, args.port(), null)) {
+        try (SerialPortWrapper port = openPort(effectiveDevice, args.port(), (ch.erzberger.sharppc.exchange.serial.ByteProcessor) null)) {
             DataSender sender = new DataSender(port, effectiveDevice);
             sender.sendData(dataToSend);
         }
@@ -285,6 +287,36 @@ public class SharpDataExchange {
         }
     }
 
+    // ---- terminal path ----
+
+    private static void runTerminal(CliArgs args) {
+        System.out.println("Terminal mode active (" + args.device() + "). Press ESC twice to exit.");
+
+        try (SerialPortWrapper port = openPort(args.device(), args.port(), b -> {
+            System.out.print((char) b);
+            System.out.flush();
+        })) {
+            int escapeCount = 0;
+            while (true) {
+                if (System.in.available() > 0) {
+                    int c = System.in.read();
+                    if (c == 27) { // ESC
+                        escapeCount++;
+                        if (escapeCount >= 2) break;
+                    } else {
+                        escapeCount = 0;
+                        port.writeBytes(new byte[]{(byte) c});
+                    }
+                } else {
+                    Thread.sleep(10);
+                }
+            }
+        } catch (Exception e) {
+            log.log(Level.SEVERE, "Terminal error: {0}", e.getMessage());
+        }
+        System.out.println("\nTerminal mode closed.");
+    }
+
     // ---- Serial port helpers ----
 
     /**
@@ -292,15 +324,15 @@ public class SharpDataExchange {
      *
      * @param device       target device (determines baud rate and flow control)
      * @param portName     explicit port name, or null/empty for auto-detection
-     * @param receiver     non-null to open for reading, null to open for writing
+     * @param byteProcessor non-null to open for reading, null to open for writing
      * @return configured open port
      */
-    private static SerialPortWrapper openPort(PocketPcDevice device, String portName, DataReceiver receiver) {
+    private static SerialPortWrapper openPort(PocketPcDevice device, String portName, ch.erzberger.sharppc.exchange.serial.ByteProcessor byteProcessor) {
         SerialPortWrapper port = new SerialPortWrapper(portName);
         int baudRate = device.isPC1500() ? 19200 : 9600;
         boolean handShake = device.isPC1600();
-        if (receiver != null) {
-            port.openPort(baudRate, handShake, receiver);
+        if (byteProcessor != null) {
+            port.openPort(baudRate, handShake, byteProcessor);
         } else {
             port.openPort(baudRate, handShake);
         }

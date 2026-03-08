@@ -160,9 +160,21 @@ class CliParserTest {
     }
 
     @Test
-    @DisplayName("get without file returns null")
+    @DisplayName("get without file is allowed")
     void getWithoutFile() {
-        assertNull(parser.parse(new String[]{"get"}));
+        CliArgs args = parser.parse(new String[]{"get"});
+        assertNotNull(args);
+        assertEquals("get", args.verb());
+        assertNull(args.file());
+    }
+
+    @Test
+    @DisplayName("terminal without file is allowed")
+    void terminalWithoutFile() {
+        CliArgs args = parser.parse(new String[]{"terminal"});
+        assertNotNull(args);
+        assertEquals("terminal", args.verb());
+        assertNull(args.file());
     }
 
     @Test

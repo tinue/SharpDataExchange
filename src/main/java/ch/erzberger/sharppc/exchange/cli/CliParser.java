@@ -15,7 +15,7 @@ import java.util.logging.Logger;
 public class CliParser {
 
     private static final String TOOLNAME = "SharpDataExchange";
-    private static final String USAGE = TOOLNAME + " get|put [options] <file>";
+    private static final String USAGE = TOOLNAME + " get [options] [<file>] | put [options] <file> | terminal [options]";
 
     /**
      * Parse command-line arguments into a {@link CliArgs} record.
@@ -44,9 +44,9 @@ public class CliParser {
         }
 
         // Verb must be first
-        if (!"get".equals(first) && !"put".equals(first)) {
+        if (!"get".equals(first) && !"put".equals(first) && !"terminal".equals(first)) {
             formatter.printHelp(USAGE, null, options,
-                    "ERROR: Expected 'get' or 'put' as first argument, got: " + first);
+                    "ERROR: Expected 'get', 'put' or 'terminal' as first argument, got: " + first);
             return null;
         }
 
@@ -78,13 +78,13 @@ public class CliParser {
             setLogLevel(Level.FINE);
         }
 
-        // File is the only required positional arg
+        // File is required for 'put', optional for 'get' and 'terminal'
         String[] positional = line.getArgs();
-        if (positional.length == 0) {
+        if (positional.length == 0 && "put".equals(verb)) {
             formatter.printHelp(USAGE, null, options, "ERROR: A file name is required");
             return null;
         }
-        String file = positional[0];
+        String file = positional.length > 0 ? positional[0] : null;
 
         // Device
         PocketPcDevice device = PocketPcDevice.PC1500;

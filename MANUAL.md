@@ -415,6 +415,25 @@ PCONSOLE "COM1:",<line-length>,<eol>
 ```
 EOL codes: `0`=CR, `1`=LF, `2`=CR/LF. Example: `PCONSOLE "COM1:",80,2`
 
+### `terminal` — Experimental interactive mode
+
+```
+java -jar SharpDataExchange.jar terminal [options]
+```
+
+Starts a passive terminal session. All data received from the Pocket Computer is displayed on the console, and all keyboard input is sent back to the Pocket Computer.
+
+This is useful for debugging serial communication or interacting with custom BASIC programs that use `PRINT#` and `INPUT#` for user interaction.
+
+**To exit:** Press the **ESC** key twice in rapid succession.
+
+| Option | Description |
+|---|---|
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Required to configure the serial port baud rate and handshaking. |
+| `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
+| `-v`, `--verbose` | Verbose logging |
+| `-vv`, `--debug` | Debug logging |
+
 ---
 
 ## Data Formats

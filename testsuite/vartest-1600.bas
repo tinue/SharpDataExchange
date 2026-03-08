@@ -1,11 +1,16 @@
 10 "A"
 20 CLEAR
-30 A=PI
+30 A=55.55555
 40 B=55
+42 C$="A String"
 50 DIM B(1)
 60 B(0)=11
 70 B(1)=22
-80 PRINT# "MYVARS";A,B,B(*)
+71 DIM C$(1)
+72 C$(0)="First in string array"
+73 C$(1)="Second in atring array"
+74 D=100
+80 PRINT#2; A, B ,C$ ,B(0), B(1), C$(0), C$(1), D
 90 END
 100 "B"
 110 DIM T(1)
@@ -19,3 +24,15 @@
 180 GOTO 200
 190 PRINT "Error!"
 200 END
+500 "J" SETCOM "COM1:",9600,8,N,1,N,N
+505 PRINT "Setcom done"
+510 INIT "COM1:",4096
+515 PRINT "Init done"
+520 OUTSTAT "COM1:"
+525 PRINT "Outstat done"
+530 RCVSTAT "COM1:",24
+535 PRINT "RCVSTAT done"
+540 MAXFILES=2
+545 PRINT "MAXFILES done"
+550 OPEN "COM1:" FOR OUTPUT AS #2
+555 PRINT "COM1 opened"

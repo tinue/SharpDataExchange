@@ -13,11 +13,12 @@ SharpCommunicator (the existing reference app) has a confusing CLI using `--in-f
 ```
 java -jar SharpDataExchange.jar get [options] <output-file>
 java -jar SharpDataExchange.jar put [options] <input-file>
+java -jar SharpDataExchange.jar terminal [options]
 ```
 
 - `get` — Receive data from Pocket PC, write to `<output-file>` on disk
 - `put` — Read `<input-file>` from disk, send to Pocket PC
-- The Pocket PC serial port is always implicit; no disk-to-disk mode
+- `terminal` — Experimental: passive monitor and keyboard interaction
 
 ### Full option set
 
@@ -28,6 +29,9 @@ Usage:
 
   put [options] <input-file>
       Read data from <input-file> and send it to the Pocket Computer.
+
+  terminal [options]
+      Interactive terminal mode: monitor serial and send keyboard input.
 
 Common options:
   -d, --device <device>      Device: pc1500 (default), pc1500a, pc1600
@@ -539,6 +543,7 @@ non-DIM'd string scalars (AA$, BB$, ...) may use different formats — not yet c
 3. ✅ **Headers + detection**: port `SerialHeader`/`Ce158Header`/`Pc1600Header`; implement `ContentDetector`; write header and detector tests — 27 tests passing
    - PC-1600 end marker `0x000F` added to `getHeader()` output
    - PC-1600 RESERVE and VARIABLES types are NOT supported via serial/COM
+   - Experimental `terminal` mode implemented for passive monitoring and keyboard interaction
 4. ✅ **Hardware dumps**: capture raw binary files   from real PC-1500 hardware to confirm the Reserve Area payload start address and to
    fully spec the Variables binary format. Use `SETDEV U1,CI,CO` first, then **SharpCommunicator**
    `--out-file <file> --out-format binary` to write the raw binary including the CE-158 header.
