@@ -164,7 +164,7 @@ When receiving data from the Pocket Computer, SharpDataExchange always saves it 
 
 - A program saved with `CSAVE` or `SAVE "COM1:"` (binary) is de-tokenized and written as readable ASCII BASIC.
 - Reserve Area data is written in a readable structured format (SDAR) showing the three layers, labels, and key definitions with BASIC keywords de-tokenized. (**PC-1500 only**; the PC-1600 does not support Reserve Area transfer via serial).
-- Variable data is written in a readable key-value format (SDAV).
+- Variable data is written in a readable key-value format (SDAV). (**PC-1500 only**; on the PC-1600, variables are transferred as raw ASCII text without a header).
 
 The ASCII save variants (`CSAVEa`, `SAVE "COM1:",A`) still work and produce the same result on the PC, but are slower and are not normally needed.
 
@@ -481,9 +481,9 @@ Lines beginning with `;` are comments and are ignored when reading the file back
 
 > **Size limit:** The total content across all layers must fit within the hardware Reserve Area. SharpDataExchange checks this when converting from SDAR to binary and reports an error if the limit is exceeded.
 
-### Variables (SDAV)
+### Variables (SDAV) — PC-1500 only
 
-A human-readable key-value format for variable data:
+A human-readable key-value format for variable data on the PC-1500. On the PC-1600, the `PRINT#` and `INPUT#` commands use raw ASCII text (comma-separated) without a special Sharp header or format. SharpDataExchange will send SDAV files to the PC-1600 by stripping the structure and sending raw values.
 
 ```
 ; SDAV:1.0 pc1500

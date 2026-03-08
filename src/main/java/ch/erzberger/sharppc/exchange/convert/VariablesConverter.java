@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -117,6 +118,62 @@ public class VariablesConverter {
         result = result.substring(0, countPlaceholderPos) + countLine +
                 result.substring(countPlaceholderPos + placeholder.length());
         return result;
+    }
+
+    /**
+     * Convert SDAV text to the raw ASCII CSV format used by PC-1600 {@code PRINT#} / {@code INPUT#}.
+     *
+     * @param sdavText SDAV text
+     * @return Raw ASCII bytes (comma-separated values, no header)
+     */
+    public static byte[] toPc1600Csv(String sdavText) {
+        String[] lines = sdavText.split("\\r?\\n");
+        StringBuilder sb = new StringBuilder();
+
+        boolean inDim = false;
+        int dimCount = 0;
+        int dimMax = -1;
+
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith(";")) continue;
+
+            if (inDim) {
+                if (dimCount > 0) sb.append(",");
+                appendValue(sb, line);
+                dimCount++;
+                if (dimCount > dimMax) {
+                    inDim = false;
+                }
+            } else if (line.startsWith("DIM $(")) {
+                int rparen = line.indexOf(')');
+                dimMax = Integer.parseInt(line.substring(6, rparen).trim());
+                inDim = true;
+                dimCount = 0;
+                if (!sb.isEmpty()) sb.append(",");
+            } else if (line.startsWith("DIM (")) {
+                int rparen = line.indexOf(')');
+                dimMax = Integer.parseInt(line.substring(5, rparen).trim());
+                inDim = true;
+                dimCount = 0;
+                if (!sb.isEmpty()) sb.append(",");
+            } else {
+                if (!sb.isEmpty()) sb.append(",");
+                appendValue(sb, line);
+            }
+        }
+        sb.append("\r\n"); // Terminate the stream
+        return sb.toString().getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private static void appendValue(StringBuilder sb, String line) {
+        if (line.startsWith("\"") && line.endsWith("\"")) {
+            // String: already quoted, keep as is
+            sb.append(line);
+        } else {
+            // Number: just append
+            sb.append(line);
+        }
     }
 
     /**

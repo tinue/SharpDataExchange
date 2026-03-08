@@ -259,6 +259,9 @@ public class SharpDataExchange {
 
     private static byte[] encodeAsciiVars(byte[] rawData, CliArgs args) {
         String text = new String(rawData, StandardCharsets.UTF_8);
+        if (args.device().isPC1600()) {
+            return VariablesConverter.toPc1600Csv(text);
+        }
         byte[] payload = VariablesConverter.toBinary(text, args.device());
         String filename = deriveFilename(args.file());
         // CE-158 VARIABLES header length field is always 1 (wire: 0x0000 — meaningless)
