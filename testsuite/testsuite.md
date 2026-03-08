@@ -91,7 +91,7 @@ PC-1500: `CLOADa`, then send the file from another tool in plain text (or type t
 ```
 sde get reserve.sdar
 ```
-PC-1500: `CSAVE"MYRESERVE",A`
+PC-1500: `CSAVEr"MYRESERVE"`
 
 `reserve.sdar` will be an SDAR text file showing the three layers of key labels and content with BASIC keywords detokenized.
 
@@ -99,7 +99,7 @@ PC-1500: `CSAVE"MYRESERVE",A`
 
 Edit `reserve.sdar` (change a key label or content), then:
 
-PC-1500: `CLOAD,A`
+PC-1500: `CLOADr`
 
 ```
 sde put reserve.sdar
@@ -110,21 +110,25 @@ The updated key definitions appear in the reserve area.
 
 **Get Variables:**
 
+Load the test program first:
+`CLOAD` on the PC-1500, and `sde put vartest.bas` on the host.
+
+Now for the actual test:
 ```
 sde get vars.sdav
 ```
-PC-1500: `CSAVE"MYVARS",V`
+PC-1500: `DEF-a`
 
 `vars.sdav` will be an SDAV text file listing each variable value in order.
 
 **Put Variables back:**
 
-PC-1500: `CLOAD,V` (variables must be pre-DIM'd in the correct order if arrays are used)
+PC-1500: `DEF-b` (variables will be pre-DIM'd in the correct order, and then loaded)
 
 ```
 sde put vars.sdav
 ```
-Values are restored.
+Values are read into different variables: Check F, G, T(0) and T(1); Compare to A, B, B(0) ans B(1).
 
 ---
 
