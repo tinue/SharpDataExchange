@@ -6,7 +6,7 @@
 
     <groupId>ch.erzberger</groupId>
     <artifactId>SharpDataExchange</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 
     <name>SharpDataExchange</name>
     <description>Data exchange between a modern PC and Sharp Pocket Computers via USB/Serial</description>

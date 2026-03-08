@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - Unreleased
+
+### Added
+
+### Fixed
+
+### Changed
+
 ## [0.1.0] - 2026-03-08
 
 Initial release.
