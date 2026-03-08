@@ -39,11 +39,12 @@ if [ ! -f "$JAR_FILE" ]; then
 fi
 
 # 4. Create/Update Release using gh CLI
-echo "Creating GitHub ${IS_PRERELEASE:+pre}release..."
-
-PRERELEASE_FLAG=""
 if [ "$IS_PRERELEASE" = true ]; then
+    echo "Creating GitHub prerelease..."
     PRERELEASE_FLAG="--prerelease"
+else
+    echo "Creating GitHub release..."
+    PRERELEASE_FLAG="--prerelease=false"
 fi
 
 # Check if release already exists
@@ -53,7 +54,12 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "$JAR_FILE" --clobber
 else
     echo "Creating new release $TAG..."
-    gh release create "$TAG" "$JAR_FILE" --title "$TAG" --notes "$NOTES" $PRERELEASE_FLAG
+    # For create, we use --prerelease if it is one, otherwise no flag (or --prerelease=false)
+    if [ "$IS_PRERELEASE" = true ]; then
+        gh release create "$TAG" "$JAR_FILE" --title "$TAG" --notes "$NOTES" --prerelease
+    else
+        gh release create "$TAG" "$JAR_FILE" --title "$TAG" --notes "$NOTES"
+    fi
 fi
 
 echo "Done."
