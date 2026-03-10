@@ -235,9 +235,9 @@ public class ReserveAreaConverter {
             int b = bytes[i] & 0xFF;
             if ((b == 0xF0 || b == 0xF1) && i + 1 < bytes.length) {
                 int code = (b << 8) | (bytes[i + 1] & 0xFF);
-                Optional<BasicKeyword> kw = registry.lookupByTokenCode(code);
-                if (kw.isPresent()) {
-                    sb.append(kw.get().name());
+                String name = registry.lookupByTokenCode(code).map(BasicKeyword::name).orElse(null);
+                if (name != null) {
+                    sb.append(name);
                 } else {
                     sb.append((char) b);
                     sb.append((char) (bytes[i + 1] & 0xFF));
