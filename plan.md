@@ -95,7 +95,11 @@ SharpDataExchange/
     │   │   │   │                             #   MACHINE, UNKNOWN
     │   │   │   ├── AsciiBasicTokenizer.java     # thin wrapper on SharpBasicShared
     │   │   │   ├── ReserveAreaConverter.java    # NEW: binary <-> ASCII Reserve
+    │   │   │   │                             #   uses KeywordRegistry.lookupByTokenCode()
+    │   │   │   │                             #   (SharpBasicShared) for key content tokens
     │   │   │   └── VariablesConverter.java      # NEW: binary <-> ASCII Variables
+    │   │   │                                 #   delegates BCD encode/decode to
+    │   │   │                                 #   Pc1500NumericCodec (SharpBasicShared)
     │   │   │   # NOTE: BinaryBasicDetokenizer lives in SharpBasicShared library
     │   │   └── io/
     │   │       └── FileHandler.java          # port, drop clipboard support
@@ -122,7 +126,8 @@ SharpDataExchange/
 
 jSerialComm 2.11.2        (serial communication)
 commons-cli 1.10.0        (CLI argument parsing)
-sharp-basic-core          (KeywordRegistry, BasicKeyword, AbbreviationExpander)
+sharp-basic-core          (KeywordRegistry + lookupByTokenCode(), BasicKeyword, AbbreviationExpander,
+                           Pc1500NumericCodec — new, see SharpBasicShared/ImplementationPlan.md §Phase 5)
 sharp-basic-antlr         (BinaryBasicDetokenizer, BinaryEncodingVisitor, NormalizedTextVisitor, etc.)
 lombok 1.18.x             (compile-scope only)
 junit-jupiter 5.x         (test)
@@ -202,6 +207,18 @@ In SharpDataExchange, the `get` path for `BINARY_BASIC` calls:
 BinaryBasicDetokenizer detokenizer = new BinaryBasicDetokenizer(registry);
 List<String> asciiLines = detokenizer.detokenize(payloadBytes);
 ```
+
+### Library delegation for conversion classes
+
+`ReserveAreaConverter` and `VariablesConverter` both depend on the library for device-type-level operations:
+
+- **Token ↔ keyword name** (Reserve Area key content): use `KeywordRegistry.lookupByTokenCode(int)` (new method — see `SharpBasicShared/ImplementationPlan.md §Phase 5`). The key content pool uses the same F0H+xx / F1H+xx token codes as BASIC programs; the library is the single source of truth for these codes. `ReserveAreaConverter` must not build its own reverse-lookup map.
+
+- **BCD numeric encode/decode** (Variables): use `Pc1500NumericCodec` (new class in `sharp-basic-core` — see `SharpBasicShared/ImplementationPlan.md §Phase 5`). `VariablesConverter` never implements BCD arithmetic directly.
+
+Both classes continue to own all CE-158 tape structure knowledge: record separators, 4-byte prefixes, 26-byte label slots, pool layout, key code table. That knowledge stays in this project.
+
+---
 
 ### Binary format: Reserve Area (CE-158 payload, type 'A')
 
@@ -371,6 +388,10 @@ escaping (`\`, `"`, and bytes < 0x20 or > 0x7E) are escaped; all others are writ
 literally.
 
 ### Binary format: numeric variable value (8 bytes, §5-3-1 / §5-3-2)
+
+> **Library delegation**: encode/decode of this format is implemented as `Pc1500NumericCodec`
+> in `sharp-basic-core`. `VariablesConverter` delegates all BCD arithmetic to that class.
+> See `SharpBasicShared/ImplementationPlan.md §Phase 5` for the library-side plan.
 
 Two possible encodings — distinguished by byte 4:
 

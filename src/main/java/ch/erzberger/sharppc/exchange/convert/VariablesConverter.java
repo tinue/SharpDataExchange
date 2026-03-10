@@ -1,12 +1,11 @@
 package ch.erzberger.sharppc.exchange.convert;
 
+import ch.erzberger.sharpbasic.core.numeric.Pc1500NumericCodec;
 import ch.erzberger.sharppc.exchange.cli.PocketPcDevice;
 import lombok.extern.java.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
-import java.math.MathContext;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -253,85 +252,18 @@ public class VariablesConverter {
         return out.toByteArray();
     }
 
-    // ---- BCD helpers ----
+    // ---- BCD helpers (delegate to Pc1500NumericCodec) ----
 
-    /**
-     * Decode an 8-byte BCD value to a formatted decimal string.
-     */
     static String formatBcd(byte[] data) {
-        BigDecimal bd = decodeBcd(data);
-        if (bd.compareTo(BigDecimal.ZERO) == 0) return "0";
-        BigDecimal stripped = bd.stripTrailingZeros();
-        // Determine exponent (floor(log10(|value|)))
-        int precision = stripped.precision();
-        int scale = stripped.scale();
-        int exp = precision - scale - 1;
-        if (exp >= -3 && exp <= 9) {
-            return stripped.toPlainString();
-        }
-        return stripped.toString(); // scientific notation e.g. 1E-9
+        return Pc1500NumericCodec.decode(data);
     }
 
-    /**
-     * Decode an 8-byte BCD value to BigDecimal.
-     */
-    static BigDecimal decodeBcd(byte[] data) {
-        // B2H binary integer: byte 4 == 0xB2
-        if ((data[4] & 0xFF) == 0xB2) {
-            int value = (short) (((data[5] & 0xFF) << 8) | (data[6] & 0xFF));
-            return BigDecimal.valueOf(value);
-        }
-        // BCD float
-        int exponent = data[0]; // signed 8-bit (Java byte is already signed)
-        boolean negative = (data[1] & 0xFF) == 0x80;
-        long mantissa = 0;
-        for (int i = 2; i <= 6; i++) {
-            int hi = (data[i] >> 4) & 0xF;
-            int lo = data[i] & 0xF;
-            mantissa = mantissa * 100 + hi * 10 + lo;
-        }
-        if (mantissa == 0) return BigDecimal.ZERO;
-        BigDecimal bd = new BigDecimal(mantissa).scaleByPowerOfTen(exponent - 9);
-        return negative ? bd.negate() : bd;
-    }
-
-    /**
-     * Encode a decimal string to 8 BCD bytes.
-     */
     static byte[] parseBcd(String decimal) {
-        byte[] result = new byte[8];
-        BigDecimal bd;
         try {
-            bd = new BigDecimal(decimal.trim());
+            return Pc1500NumericCodec.encode(new BigDecimal(decimal.trim()));
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Invalid decimal value: " + decimal);
         }
-        if (bd.compareTo(BigDecimal.ZERO) == 0) {
-            return result; // all zeros
-        }
-        boolean negative = bd.signum() < 0;
-        BigDecimal abs = bd.abs().round(new MathContext(10, RoundingMode.HALF_UP));
-
-        // Exponent = floor(log10(abs)) = precision - scale - 1
-        int exp = abs.precision() - abs.scale() - 1;
-        if (exp < -99 || exp > 99) {
-            throw new IllegalArgumentException("Value out of range for PC-1500 BCD: " + decimal);
-        }
-
-        // Mantissa as 10-digit integer
-        BigDecimal mantissaBd = abs.scaleByPowerOfTen(9 - exp).setScale(0, RoundingMode.HALF_UP);
-        long mantissa = mantissaBd.longValueExact();
-
-        result[0] = (byte) exp;
-        result[1] = negative ? (byte) 0x80 : 0x00;
-        // Encode mantissa as 5 packed BCD bytes (bytes 2-6), MSB first
-        for (int i = 6; i >= 2; i--) {
-            int lo = (int) (mantissa % 10); mantissa /= 10;
-            int hi = (int) (mantissa % 10); mantissa /= 10;
-            result[i] = (byte) ((hi << 4) | lo);
-        }
-        result[7] = 0x00;
-        return result;
     }
 
     // ---- String helpers ----

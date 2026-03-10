@@ -8,8 +8,6 @@ import lombok.extern.java.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -60,7 +58,6 @@ public class ReserveAreaConverter {
         }
 
         KeywordRegistry registry = registryFor(device);
-        Map<Integer, String> tokenMap = buildTokenMap(registry);
 
         // Extract labels
         String[] labels = new String[NUM_LAYERS];
@@ -105,7 +102,7 @@ public class ReserveAreaConverter {
                     offset++;
                 }
             }
-            keyContent[layer][key] = detokenizeContent(contentBytes.toByteArray(), tokenMap);
+            keyContent[layer][key] = detokenizeContent(contentBytes.toByteArray(), registry);
         }
 
         // Build SDAR text
@@ -207,14 +204,6 @@ public class ReserveAreaConverter {
                 : KeywordRegistry.forPc1500();
     }
 
-    private static Map<Integer, String> buildTokenMap(KeywordRegistry registry) {
-        Map<Integer, String> map = new HashMap<>();
-        for (BasicKeyword kw : registry.allKeywords()) {
-            map.put(kw.tokenCode(), kw.name());
-        }
-        return map;
-    }
-
     private static String decodeLabel(byte[] labelBytes) {
         try {
             return new String(labelBytes, "Cp437").replace("\0", "").trim();
@@ -239,16 +228,16 @@ public class ReserveAreaConverter {
      * Detokenize pool content bytes to a readable string.
      * 0xF0/0xF1 + byte = 2-byte BASIC token; other bytes = plain CP437 char.
      */
-    private static String detokenizeContent(byte[] bytes, Map<Integer, String> tokenMap) {
+    private static String detokenizeContent(byte[] bytes, KeywordRegistry registry) {
         StringBuilder sb = new StringBuilder();
         int i = 0;
         while (i < bytes.length) {
             int b = bytes[i] & 0xFF;
             if ((b == 0xF0 || b == 0xF1) && i + 1 < bytes.length) {
                 int code = (b << 8) | (bytes[i + 1] & 0xFF);
-                String name = tokenMap.get(code);
-                if (name != null) {
-                    sb.append(name);
+                Optional<BasicKeyword> kw = registry.lookupByTokenCode(code);
+                if (kw.isPresent()) {
+                    sb.append(kw.get().name());
                 } else {
                     sb.append((char) b);
                     sb.append((char) (bytes[i + 1] & 0xFF));

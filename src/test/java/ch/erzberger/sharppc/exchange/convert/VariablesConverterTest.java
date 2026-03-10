@@ -5,7 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.math.BigDecimal;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -169,16 +168,6 @@ class VariablesConverterTest {
         byte[] zeros = new byte[8];
         String result = VariablesConverter.formatBcd(zeros);
         assertEquals("0", result, "All-zero BCD bytes should decode to '0'");
-    }
-
-    @Test
-    @DisplayName("BCD decodeBcd returns BigDecimal matching parsed value")
-    void testDecodeBcd() {
-        byte[] encoded = VariablesConverter.parseBcd("3.14159265");
-        BigDecimal bd = VariablesConverter.decodeBcd(encoded);
-        BigDecimal expected = new BigDecimal("3.14159265");
-        assertEquals(0, expected.compareTo(bd.stripTrailingZeros()),
-                "Decoded BigDecimal should equal 3.14159265");
     }
 
     // ---- String escape round-trip tests ----
