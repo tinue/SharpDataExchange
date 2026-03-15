@@ -1,5 +1,6 @@
 10 REM Active bank of CE163F
 20 "A"PRINT "Bank:"; PEEK&E2
+25 CLEAR: REM Clear DIMed variables
 30 REM Keyboard intercept
 40 K$="off": IF PEEK&79D4=&55 LET K$="on"
 50 H=&785B: GOSUB "HEXPEEK": K$=K$+" at &" +H$

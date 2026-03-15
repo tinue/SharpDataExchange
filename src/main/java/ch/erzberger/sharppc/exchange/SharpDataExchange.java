@@ -199,6 +199,19 @@ public class SharpDataExchange {
         DataType type = new ContentDetector().detect(rawData);
         log.log(Level.FINE, "Detected input type: {0}", type);
 
+        // If a start address is given, the input is a raw machine language binary.
+        // Trust the user over content detection: skip the header check and treat as MACHINE.
+        // The --format flag is also irrelevant for machine language (always binary).
+        if (args.startAddress() != null) {
+            if (type != DataType.MACHINE) {
+                log.log(Level.FINE, "Start address given; overriding detected type {0} → MACHINE", type);
+            }
+            type = DataType.MACHINE;
+            if (args.format() != null) {
+                log.log(Level.FINE, "--format is ignored for machine language programs");
+            }
+        }
+
         // For binary files with a recognizable header, infer the target device from the header.
         // --device is then optional and only required for ASCII input or headerless machine code.
         PocketPcDevice effectiveDevice = args.device();

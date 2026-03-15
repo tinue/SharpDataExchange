@@ -3,6 +3,7 @@
 ## [0.2.0] - Unreleased
 
 ### Added
+- Support for source-only comments in ASCII BASIC files: lines starting with `//` or `#` at column 0 are recognised as documentation comments and stripped before the program is sent to the device, saving RAM that `REM` statements would otherwise consume.
 
 ### Fixed
 
