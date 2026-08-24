@@ -12,6 +12,8 @@ package ch.erzberger.sharppc.exchange.cli;
  * @param runAddress   Machine language auto-run address (put only), or null
  * @param addUtils    Whether to prepend serial utility BASIC sub-program (put only)
  * @param skipHeader  Whether to omit the serial header from the saved binary file (get only)
+ * @param dryRunFile  Write the fully-formed data block (header + payload) to this path instead
+ *                    of sending it over serial (put only), or null to send normally
  */
 public record CliArgs(
         String verb,
@@ -22,5 +24,6 @@ public record CliArgs(
         Integer startAddress,
         Integer runAddress,
         boolean addUtils,
-        boolean skipHeader) {
+        boolean skipHeader,
+        String dryRunFile) {
 }

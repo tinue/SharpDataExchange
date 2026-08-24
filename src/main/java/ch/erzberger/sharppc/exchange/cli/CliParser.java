@@ -119,8 +119,12 @@ public class CliParser {
         Integer startAddress = null;
         Integer runAddress = null;
         boolean addUtils = false;
+        String dryRunFile = null;
 
         if ("put".equals(verb)) {
+            if (line.hasOption("dry-run")) {
+                dryRunFile = line.getOptionValue("dry-run");
+            }
             if (line.hasOption("run-address") && !line.hasOption("start-address")) {
                 formatter.printHelp(USAGE, null, options,
                         "ERROR: Cannot specify --run-address without --start-address");
@@ -152,7 +156,7 @@ public class CliParser {
         log.log(Level.FINE, "Parsed CLI: verb={0} file={1} device={2} port={3} format={4}",
                 new Object[]{verb, file, device, port, format});
 
-        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader);
+        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader, dryRunFile);
     }
 
     private Options createOptions() {
@@ -175,6 +179,9 @@ public class CliParser {
                 "Prepend serial utility BASIC sub-program"));
         options.addOption(new Option(null, "skip-header", false,
                 "Omit serial header from saved binary file (get --format binary only; not recommended)"));
+        options.addOption(Option.builder().longOpt("dry-run")
+                .desc("put only: write the fully-formed data block (header + payload) to this "
+                        + "file instead of sending it over serial").hasArg().build());
         return options;
     }
 

@@ -260,18 +260,25 @@ This command must be re-entered after each power cycle or `NEW`.
 
 #### Receive a program from the PC (`put`)
 
-Issue the load command on the PC-1500 **before** starting `put` on the PC:
+Issue the load command on the PC-1500 **before** starting `put` on the PC. The command depends on the payload type:
 
 | To receive... | Command |
 |---|---|
-| Tokenized binary (default) | `CLOAD` |
+| Tokenized BASIC (binary, default) | `CLOAD` |
 | ASCII BASIC | `CLOADa` |
+| Machine language | `CLOADM` |
 
-SharpDataExchange sends binary by default for the fastest and most reliable transfer. When loading binary, the PC-1500 does not need to parse each line, which avoids timing problems.
+SharpDataExchange sends BASIC as tokenized binary by default for the fastest and most reliable transfer. When loading binary, the PC-1500 does not need to parse each line, which avoids timing problems. Machine language is always binary and always requires `CLOADM` — `CLOAD`/`CLOADa` only load BASIC programs.
 
 #### Send a program to the PC (`get`)
 
-Start `get` on the PC **first**, then issue the save command on the PC-1500:
+Start `get` on the PC **first**, then issue the save command on the PC-1500. The command depends on the payload type:
+
+| To send... | Command |
+|---|---|
+| Tokenized BASIC (binary, default) | `CSAVE` |
+| ASCII BASIC | `CSAVEa` |
+| Machine language | `CSAVE M start,end[,run]` |
 
 ```
 CSAVE
@@ -286,6 +293,8 @@ CSAVE"filename"
 SharpDataExchange de-tokenizes the binary data and writes readable ASCII BASIC to the file. Binary is faster than ASCII transfer and is the recommended method.
 
 > The ASCII variant (`CSAVEa`) also works and produces the same result on the PC, but is significantly slower and is not normally used.
+
+Machine language is always saved with `CSAVE M` (or `CSAVEM`), giving the start and end addresses of the memory block to send — `CSAVE`/`CSAVEa` only save BASIC programs. See [`CSAVE M` in the CE-150 reference](https://github.com/tinue/SharpBasicReference/blob/main/CE-150-Reference.md#csave-m--save-machine-language) for the full syntax.
 
 #### Save/load the Reserve Area
 
@@ -578,7 +587,17 @@ If the binary file has no CE-158 header, provide the addresses:
 java -jar SharpDataExchange.jar put --start-address 38C5 --run-address 38C5 program.bin
 ```
 
-On the PC-1500: `SETDEV U1,CI,CO` then `CLOAD`.
+On the PC-1500: `SETDEV U1,CI,CO` then `CLOADM`.
+
+### Save a machine language program from the PC-1500
+
+Start `get` on the PC **first**, then on the PC-1500: `SETDEV U1,CI,CO` then, e.g., `CSAVE M &38C5,&3A00`.
+
+```
+java -jar SharpDataExchange.jar get program.bin
+```
+
+Machine language can't be de-tokenized to ASCII the way BASIC is, so `get` always writes it as raw binary (header included, unless `--skip-header` is given) regardless of `--format` — the file can be sent straight back with `put`.
 
 ### Specify the serial port manually
 
@@ -598,6 +617,9 @@ A line in the program exceeds 80 characters. Load as binary instead (omit `a` fr
 
 **`ERROR 61` on the PC-1500 when loading binary**
 The binary file lacks a CE-158 header. SharpDataExchange adds the header automatically when sending; this error should not occur with files produced by `get`. If sending a third-party binary file, ensure it either has a header or supply `--start-address`.
+
+**Machine language program loads but reports a garbled/wrong header, or won't run**
+`CLOAD` only loads BASIC programs — it does not understand a machine-language payload even though the header and bytes are correct. Use `CLOADM` on the PC-1500 to receive machine language. Likewise, use `CSAVE M start,end[,run]` (not plain `CSAVE`) on the PC-1500 to send machine language to `get`.
 
 **Data corruption or incomplete transfer (PC-1500)**
 The PC-1500 requires paced transmission. SharpDataExchange applies a 1 ms delay between bytes and a 300 ms pause after the header automatically. If problems persist, check the USB cable and CE-158X connection.

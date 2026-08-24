@@ -225,6 +225,9 @@ public class SharpDataExchange {
 
         String putFilename = deriveFilename(args.file());
         System.out.println("Putting " + putFilename);
+        if (type == DataType.MACHINE) {
+            reportMachineHeaderInfo(rawData, headerOffset, args, effectiveDevice);
+        }
 
         byte[] dataToSend = switch (type) {
             case ASCII_BASIC -> encodeAsciiBasic(rawData, args);
@@ -243,12 +246,46 @@ public class SharpDataExchange {
             }
         };
 
-        // Step 3: send
+        // Step 3: send (or write to disk for --dry-run)
+        if (args.dryRunFile() != null) {
+            FileHandler.writeBinary(args.dryRunFile(), dataToSend);
+            System.out.println("Dry run: wrote " + dataToSend.length + " bytes to " + args.dryRunFile()
+                    + " (nothing sent over serial)");
+            return;
+        }
         try (SerialPortWrapper port = openPort(effectiveDevice, args.port(), (ch.erzberger.sharppc.exchange.serial.ByteProcessor) null)) {
             DataSender sender = new DataSender(port, effectiveDevice);
             sender.sendData(dataToSend);
         }
         log.log(Level.FINE, "Sent {0} bytes", dataToSend.length);
+    }
+
+    /**
+     * Print, for a machine-language transfer, whether a header is already present, will be
+     * added, or is being omitted entirely — plus the load and run (auto-run) addresses in
+     * play, so the user can confirm what is actually being sent to the device.
+     */
+    private static void reportMachineHeaderInfo(byte[] rawData, int headerOffset, CliArgs args,
+                                                  PocketPcDevice effectiveDevice) {
+        String addrFmt = effectiveDevice.isPC1600() ? "0x%06X" : "0x%04X";
+        if (headerOffset >= 0) {
+            SerialHeader existing = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
+            System.out.println("Header: already present in file (device=" + effectiveDevice + ") — sending as-is");
+            System.out.println("  Load address: " + String.format(addrFmt, existing.getStartAddr()));
+            System.out.println("  Run address:  " + String.format(addrFmt, existing.getRunAddr())
+                    + (existing.getRunAddr() == 0 ? " (no auto-run)" : ""));
+            if (args.startAddress() != null) {
+                System.out.println("  Note: --start-address/--run-address ignored — file already has a header");
+            }
+        } else if (args.startAddress() != null) {
+            int runAddr = args.runAddress() != null ? args.runAddress() : 0xFFFF;
+            System.out.println("Header: adding new header (device=" + effectiveDevice + ")");
+            System.out.println("  Load address: " + String.format(addrFmt, args.startAddress()));
+            System.out.println("  Run address:  " + String.format(addrFmt, runAddr)
+                    + (args.runAddress() == null ? " (default — no --run-address given)" : ""));
+        } else {
+            System.out.println("Header: none added — sending raw machine code as-is (no --start-address given)");
+        }
     }
 
     private static byte[] encodeAsciiBasic(byte[] rawData, CliArgs args) {
