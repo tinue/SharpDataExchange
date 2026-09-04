@@ -4,7 +4,7 @@
 
 ### Added
 - Support for source-only comments in ASCII BASIC files: lines starting with `//` or `#` at column 0 are recognised as documentation comments and stripped before the program is sent to the device, saving RAM that `REM` statements would otherwise consume.
-- `--device pc1600emul`: talk to a PC-1600 emulator over a host pseudo-terminal. Uses the PC-1600 wire format but runs without hardware (RTS/CTS) flow control and paces the send like the PC-1500. The port must be given with `--port` (e.g. `/dev/ttys006`); emulator pseudo-terminals cannot be auto-detected.
+- `--device pc1600emul`: talk to a PC-1600 emulator over a host pseudo-terminal. Uses the PC-1600 wire format but runs without hardware (RTS/CTS) flow control and paces the send like the PC-1500. Emulator pseudo-terminals cannot be auto-detected the way real serial adapters are, so if `--port` is omitted it TEMPORARILY defaults to the Calc-U-1600 app's fixed serial socket (`~/Library/Containers/ch.erzberger.Calc-U-1600/Data/Library/Application Support/Calc-U-1600/serial`); this default will change once the emulator exposes a discoverable port.
 
 ### Fixed
 - Serial port names are now accepted with surrounding whitespace or a trailing slash (a path such as `/dev/ttys006/` previously failed to open with `ENOTDIR`).

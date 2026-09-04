@@ -156,11 +156,14 @@ public class CliParser {
         // The emulator is reached over a host pseudo-terminal (/dev/ttysNNN). There are
         // always several of those present and none of them is distinguishable as "the
         // emulator", so auto-detection is not possible: the port must be given explicitly.
+        // TEMPORARY: fall back to the Calc-U-1600 app's fixed serial symlink when no port
+        // is given, until the emulator exposes a discoverable port. Remove this fallback
+        // once that's in place.
         if (device.isEmulator() && (port == null || port.isBlank()) && dryRunFile == null) {
-            formatter.printHelp(USAGE, null, options,
-                    "ERROR: -d pc1600emul requires an explicit --port (e.g. -p /dev/ttys006); "
-                            + "the emulator serial port cannot be auto-detected");
-            return null;
+            port = System.getProperty("user.home")
+                    + "/Library/Containers/ch.erzberger.Calc-U-1600/Data/Library/Application Support/Calc-U-1600/serial";
+            System.err.println("WARNING: -d pc1600emul: no --port given, defaulting to the Calc-U-1600 app's "
+                    + "serial socket (" + port + "). This is a TEMPORARY default and will change later.");
         }
 
         log.log(Level.FINE, "Parsed CLI: verb={0} file={1} device={2} port={3} format={4}",
