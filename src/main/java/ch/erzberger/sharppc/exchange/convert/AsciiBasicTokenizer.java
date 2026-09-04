@@ -28,7 +28,7 @@ public class AsciiBasicTokenizer {
     private final KeywordRegistry registry;
 
     public AsciiBasicTokenizer(PocketPcDevice device) {
-        this.registry = PocketPcDevice.PC1600.equals(device)
+        this.registry = device != null && device.isPC1600()
                 ? KeywordRegistry.forPc1600()
                 : KeywordRegistry.forPc1500();
     }

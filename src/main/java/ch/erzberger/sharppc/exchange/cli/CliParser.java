@@ -153,6 +153,16 @@ public class CliParser {
             addUtils = line.hasOption("add-utils");
         }
 
+        // The emulator is reached over a host pseudo-terminal (/dev/ttysNNN). There are
+        // always several of those present and none of them is distinguishable as "the
+        // emulator", so auto-detection is not possible: the port must be given explicitly.
+        if (device.isEmulator() && (port == null || port.isBlank()) && dryRunFile == null) {
+            formatter.printHelp(USAGE, null, options,
+                    "ERROR: -d pc1600emul requires an explicit --port (e.g. -p /dev/ttys006); "
+                            + "the emulator serial port cannot be auto-detected");
+            return null;
+        }
+
         log.log(Level.FINE, "Parsed CLI: verb={0} file={1} device={2} port={3} format={4}",
                 new Object[]{verb, file, device, port, format});
 
@@ -166,7 +176,7 @@ public class CliParser {
         options.addOption(new Option("v", "verbose", false, "Verbose logging."));
         options.addOption(new Option("vv", "debug", false, "Debug logging."));
         options.addOption(Option.builder("d").longOpt("device")
-                .desc("Device: pc1500 (default), pc1500a, pc1600").hasArg().build());
+                .desc("Device: pc1500 (default), pc1500a, pc1600, pc1600emul").hasArg().build());
         options.addOption(Option.builder("p").longOpt("port")
                 .desc("Serial port (auto-detected if omitted)").hasArg().build());
         options.addOption(Option.builder("f").longOpt("format")
@@ -190,9 +200,10 @@ public class CliParser {
             case "pc1500" -> PocketPcDevice.PC1500;
             case "pc1500a" -> PocketPcDevice.PC1500A;
             case "pc1600" -> PocketPcDevice.PC1600;
+            case "pc1600emul" -> PocketPcDevice.PC1600EMUL;
             default -> {
                 formatter.printHelp(USAGE, null, options,
-                        "ERROR: Unknown device '" + value + "' (expected pc1500, pc1500a, pc1600)");
+                        "ERROR: Unknown device '" + value + "' (expected pc1500, pc1500a, pc1600, pc1600emul)");
                 yield null;
             }
         };

@@ -218,7 +218,14 @@ public class SharpDataExchange {
         if (headerOffset >= 0) {
             SerialHeader existingHeader = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
             if (existingHeader != null && existingHeader.getDevice() != null) {
-                effectiveDevice = existingHeader.getDevice();
+                PocketPcDevice inferred = existingHeader.getDevice();
+                // The header only records the hardware model (PC-1600), not that the link
+                // is an emulator. Keep an explicit --device pc1600emul so the transport
+                // still runs without hardware flow control and with send pacing.
+                if (inferred.isPC1600() && args.device().isEmulator()) {
+                    inferred = PocketPcDevice.PC1600EMUL;
+                }
+                effectiveDevice = inferred;
                 log.log(Level.FINE, "Device inferred from binary header: {0}", effectiveDevice);
             }
         }
@@ -401,7 +408,9 @@ public class SharpDataExchange {
     private static SerialPortWrapper openPort(PocketPcDevice device, String portName, ch.erzberger.sharppc.exchange.serial.ByteProcessor byteProcessor) {
         SerialPortWrapper port = new SerialPortWrapper(portName);
         int baudRate = device.isPC1500() ? 19200 : 9600;
-        boolean handShake = device.isPC1600();
+        // Only real PC-1600 hardware has RTS/CTS lines; the emulator pseudo-terminal
+        // has none, so it runs without hardware handshake and relies on send pacing.
+        boolean handShake = device.hasHardwareFlowControl();
         if (byteProcessor != null) {
             port.openPort(baudRate, handShake, byteProcessor);
         } else {

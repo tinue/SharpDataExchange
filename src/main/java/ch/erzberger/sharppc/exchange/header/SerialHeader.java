@@ -45,7 +45,7 @@ public abstract class SerialHeader {
      */
     public static SerialHeader makeHeader(PocketPcDevice device, FileType type, String filename,
                                           int startAddr, int length, int runAddr) {
-        if (PocketPcDevice.PC1600.equals(device)) {
+        if (device != null && device.isPC1600()) {
             return new Pc1600Header(type, filename, startAddr, length, runAddr);
         } else {
             return new Ce158Header(type, filename, startAddr, length, runAddr);
@@ -56,7 +56,7 @@ public abstract class SerialHeader {
      * Convenience factory for tokenized Basic programs.
      */
     public static SerialHeader makeHeader(PocketPcDevice device, String filename, int length) {
-        if (PocketPcDevice.PC1600.equals(device)) {
+        if (device != null && device.isPC1600()) {
             return new Pc1600Header(FileType.BASIC, filename, 0, length, 0);
         } else {
             return new Ce158Header(FileType.BASIC, filename, 0, length, 0);

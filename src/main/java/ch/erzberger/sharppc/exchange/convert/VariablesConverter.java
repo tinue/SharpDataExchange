@@ -33,7 +33,7 @@ public class VariablesConverter {
      */
     public static String toAscii(byte[] payload, String filename, PocketPcDevice device) {
         StringBuilder sb = new StringBuilder();
-        String deviceStr = PocketPcDevice.PC1600.equals(device) ? "pc1600" : "pc1500";
+        String deviceStr = device != null && device.isPC1600() ? "pc1600" : "pc1500";
         sb.append("; SDAV:1.0 ").append(deviceStr).append('\n');
 
         // We'll fill in Count later

@@ -1,8 +1,10 @@
 package ch.erzberger.sharppc.exchange.serial;
 
 import ch.erzberger.sharppc.exchange.cli.PocketPcDevice;
+import ch.erzberger.sharppc.exchange.header.SerialHeader;
 import lombok.extern.java.Log;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -11,13 +13,17 @@ import java.util.logging.Level;
  *
  * <p>PC-1500/PC-1500A timing (CE-158, 19 200 baud, no flow control):
  * <ol>
- *   <li>Send the 27-byte header at full speed.</li>
+ *   <li>Send the header at full speed.</li>
  *   <li>Pause 300 ms (let the PC-1500 process the header).</li>
  *   <li>Send payload bytes at 1 ms/byte.</li>
- *   <li>Pause 500 ms before closing the port.</li>
+ *   <li>Drain, then pause 500 ms before closing the port.</li>
  * </ol>
  *
- * <p>PC-1600 (9 600 baud, RTS/CTS flow control): send at full speed, no delays needed.
+ * <p>PC-1600 (9 600 baud, RTS/CTS flow control): send at full speed, then drain.
+ *
+ * <p>PC-1600 emulator (9 600 baud, pseudo-terminal, no flow control): same paced
+ * scheme as the PC-1500, because there is no handshake to throttle the sender and a
+ * pseudo-terminal drops whatever is still queued when the port closes.
  */
 @Log
 public class DataSender {
@@ -25,6 +31,7 @@ public class DataSender {
     private static final long HEADER_PAUSE_MS = 300L;
     private static final long BYTE_DELAY_MS = 1L;
     private static final long TAIL_PAUSE_MS = 500L;
+    private static final long DRAIN_TIMEOUT_MS = 2000L;
 
     private final SerialPortWrapper serial;
     private final PocketPcDevice device;
@@ -40,22 +47,22 @@ public class DataSender {
      * @param data fully-formed data bytes including header
      */
     public void sendData(byte[] data) {
-        if (device.isPC1500()) {
-            int headerSize = Math.min(CE158_HEADER_SIZE, data.length);
-            byte[] header = new byte[headerSize];
-            byte[] payload = new byte[data.length - headerSize];
-            System.arraycopy(data, 0, header, 0, headerSize);
-            System.arraycopy(data, headerSize, payload, 0, payload.length);
+        if (device.isPacedSend()) {
+            int headerSize = pacedHeaderSize(data);
+            byte[] header = Arrays.copyOf(data, headerSize);
+            byte[] payload = Arrays.copyOfRange(data, headerSize, data.length);
 
             serial.writeBytes(header);
-            log.log(Level.FINE, "Header sent, pausing {0}ms", HEADER_PAUSE_MS);
+            log.log(Level.FINE, "Header ({0} bytes) sent, pausing {1}ms", new Object[]{headerSize, HEADER_PAUSE_MS});
             sleep(HEADER_PAUSE_MS);
 
             serial.writeBytes(payload, BYTE_DELAY_MS);
+            serial.drainOutput(DRAIN_TIMEOUT_MS);
             log.log(Level.FINE, "Payload sent, pausing {0}ms", TAIL_PAUSE_MS);
             sleep(TAIL_PAUSE_MS);
         } else {
             serial.writeBytes(data);
+            serial.drainOutput(DRAIN_TIMEOUT_MS);
         }
     }
 
@@ -69,7 +76,7 @@ public class DataSender {
     public void sendData(List<String> lines) {
         for (String line : lines) {
             serial.writeAscii(line, device);
-            if (device.isPC1500()) {
+            if (device.isPacedSend()) {
                 sleep(TAIL_PAUSE_MS);
             }
         }
@@ -79,7 +86,22 @@ public class DataSender {
         } else {
             serial.writeBytes(new byte[]{0x1A}); // ASCII EOF (Ctrl-Z)
         }
+        serial.drainOutput(DRAIN_TIMEOUT_MS);
         sleep(TAIL_PAUSE_MS);
+    }
+
+    /**
+     * Number of leading bytes to treat as the header for the paced send (sent at full
+     * speed, then followed by a pause). The PC-1500 CE-158 header is a fixed 27 bytes;
+     * for anything else, ask the header parser how long the recognised header is.
+     */
+    private int pacedHeaderSize(byte[] data) {
+        if (device.isPC1500()) {
+            return Math.min(CE158_HEADER_SIZE, data.length);
+        }
+        SerialHeader header = SerialHeader.makeHeader(data);
+        int size = header != null ? header.getHeader().length : 0;
+        return Math.min(size, data.length);
     }
 
     private void sleep(long ms) {

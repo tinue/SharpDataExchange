@@ -107,7 +107,7 @@ public class ReserveAreaConverter {
 
         // Build SDAR text
         StringBuilder sb = new StringBuilder();
-        String deviceStr = PocketPcDevice.PC1600.equals(device) ? "pc1600" : "pc1500";
+        String deviceStr = device != null && device.isPC1600() ? "pc1600" : "pc1500";
         sb.append("; SDAR:1.0 ").append(deviceStr).append('\n');
         if (filename != null && !filename.isEmpty()) {
             sb.append("; Filename: ").append(filename).append('\n');
@@ -199,7 +199,7 @@ public class ReserveAreaConverter {
     // ---- Helpers ----
 
     private static KeywordRegistry registryFor(PocketPcDevice device) {
-        return PocketPcDevice.PC1600.equals(device)
+        return device != null && device.isPC1600()
                 ? KeywordRegistry.forPc1600()
                 : KeywordRegistry.forPc1500();
     }

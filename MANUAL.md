@@ -67,6 +67,14 @@ SharpDataExchange automatically detects the serial port:
 
 If more than one matching port is present, use `-p` to specify the port explicitly.
 
+### Emulators
+
+To exchange data with a PC-1600 emulator instead of real hardware, use `--device pc1600emul`. The emulator is reached over a host pseudo-terminal (e.g. `/dev/ttys006` on macOS), which the emulator creates while it runs. These ports cannot be auto-detected, so `--port` is required. `pc1600emul` sends the same data as `pc1600` but drops RTS/CTS hardware flow control (a pseudo-terminal has no handshake lines) and paces the transfer like the PC-1500.
+
+```
+java -jar SharpDataExchange.jar put myprogram.bas --device pc1600emul --port /dev/ttys006
+```
+
 ---
 
 ## Quick Start
@@ -199,7 +207,7 @@ If a filename is provided but lacks an extension (no dot in the name), the appro
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Required to configure the serial port (baud rate and handshaking) before data arrives. The received header is used for decoding, so an incorrect `--device` does not affect the output content. |
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Required to configure the serial port (baud rate and handshaking) before data arrives. The received header is used for decoding, so an incorrect `--device` does not affect the output content. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `binary` |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). Not recommended — see warning below. |
@@ -227,7 +235,7 @@ Reads `<input-file>` and sends it to the Pocket Computer.
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Optional when sending a binary file that already has a header — the device is inferred from the header automatically. Required for ASCII input and for headerless machine code. |
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Optional when sending a binary file that already has a header — the device is inferred from the header automatically. Required for ASCII input and for headerless machine code. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Override detected input format: `ascii`, `binary` |
 | `--start-address <hex>` | Load address for machine language programs (e.g. `38C5`) |
@@ -446,7 +454,7 @@ On the PC-1600, terminal mode can be used to redirect standard I/O:
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`. Required to configure the serial port baud rate and handshaking. |
+| `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Required to configure the serial port baud rate and handshaking. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-v`, `--verbose` | Verbose logging |
 | `-vv`, `--debug` | Debug logging |
