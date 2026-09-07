@@ -4,9 +4,9 @@ import ch.erzberger.sharppc.exchange.convert.DataType;
 import ch.erzberger.sharppc.exchange.header.Ce158Header;
 import ch.erzberger.sharppc.exchange.header.Pc1600Header;
 import ch.erzberger.sharppc.exchange.header.SerialHeader;
+import ch.erzberger.sharppc.exchange.io.SharpText;
 import lombok.extern.java.Log;
 
-import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 import java.util.regex.Pattern;
 
@@ -103,19 +103,21 @@ public class ContentDetector {
     }
 
     /**
-     * Attempt to decode {@code data} as US-ASCII text.
+     * Attempt to decode {@code data} as a text listing. High bytes (0x80–0xFF) are
+     * allowed — a listing saved off the device with {@code SAVE ...,A} carries
+     * Sharp-codepage characters such as umlauts — and so is a trailing {@code 0x1A}
+     * (the CP/M-style end-of-file marker). Genuine binary control bytes reject.
      *
-     * @return The text content if valid ASCII, null otherwise
+     * @return The text content (decoded CP437) if it looks like text, null otherwise
      */
     private String tryDecodeAsText(byte[] data) {
         for (byte b : data) {
             int v = b & 0xFF;
-            // Allow printable ASCII, CR, LF, TAB
-            if (v >= 0x80 || (v < 0x20 && v != '\r' && v != '\n' && v != '\t')) {
+            if (v < 0x20 && v != '\r' && v != '\n' && v != '\t' && v != 0x1A) {
                 return null;
             }
         }
-        return new String(data, StandardCharsets.US_ASCII);
+        return new String(data, SharpText.CP437);
     }
 
     /**

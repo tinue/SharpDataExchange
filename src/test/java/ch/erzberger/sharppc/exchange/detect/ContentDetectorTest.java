@@ -84,6 +84,18 @@ class ContentDetectorTest {
         assertEquals(DataType.ASCII_BASIC, detector.detect(program.getBytes(StandardCharsets.US_ASCII)));
     }
 
+    @Test
+    @DisplayName("Listing with CP437 umlauts and a trailing 0x1A → ASCII_BASIC")
+    void asciiBasicCp437WithEofMarker() {
+        // 0x9A = Ü, 0x8E = Ä in CP437; 0x1A = CP/M end-of-file marker (as SAVE ...,A writes)
+        byte[] program = {
+                '1', '0', ' ', 'L', 'P', 'R', 'I', 'N', 'T', ' ', '"', 'f', (byte) 0x9A, 'r', '"', '\r', '\n',
+                '2', '0', ' ', 'L', 'P', 'R', 'I', 'N', 'T', ' ', '"', 'M', (byte) 0x8E, 'r', 'z', '"', '\r', '\n',
+                '3', '0', ' ', 'E', 'N', 'D', '\r', '\n', 0x1A
+        };
+        assertEquals(DataType.ASCII_BASIC, detector.detect(program));
+    }
+
     // ---- ASCII Reserve (SDAR) detection ----
 
     @Test

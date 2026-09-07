@@ -10,6 +10,7 @@ import ch.erzberger.sharppc.exchange.convert.*;
 import ch.erzberger.sharppc.exchange.detect.ContentDetector;
 import ch.erzberger.sharppc.exchange.header.SerialHeader;
 import ch.erzberger.sharppc.exchange.io.FileHandler;
+import ch.erzberger.sharppc.exchange.io.SharpText;
 import ch.erzberger.sharppc.exchange.serial.DataReceiver;
 import ch.erzberger.sharppc.exchange.serial.DataSender;
 import ch.erzberger.sharppc.exchange.serial.SerialPortWrapper;
@@ -149,10 +150,7 @@ public class SharpDataExchange {
                     FileHandler.writeText(finalFile, sdav);
                 }
             }
-            case ASCII_BASIC -> {
-                String text = new String(rawData, StandardCharsets.US_ASCII);
-                FileHandler.writeText(finalFile, text);
-            }
+            case ASCII_BASIC -> FileHandler.writeText(finalFile, SharpText.cleanListing(rawData));
             case MACHINE, UNKNOWN -> FileHandler.writeBinary(finalFile,
                     (args.skipHeader() || header == null) ? payload : withHeader);
             default -> {
@@ -299,7 +297,12 @@ public class SharpDataExchange {
     }
 
     private static byte[] encodeAsciiBasic(byte[] rawData, CliArgs args) {
-        String text = new String(rawData, StandardCharsets.UTF_8);
+        // Accept both a modern UTF-8 listing and a raw Sharp listing saved with SAVE ...,A
+        // (CP437 bytes). The tokenizer maps the resulting text back to CP437 on the wire.
+        String text = SharpText.decodeBasListing(rawData);
+        if (args.device() != null && args.device().isPC1500()) {
+            rejectNonAsciiForPc1500(text, args.file());
+        }
         if (args.addUtils()) {
             text = text + loadUtilBasic(args.device());
         }
@@ -308,6 +311,24 @@ public class SharpDataExchange {
         SerialHeader header = SerialHeader.makeHeader(args.device(), SerialHeader.FileType.BASIC,
                 filename, 0, payload.length, 0);
         return concat(header.getHeader(), payload);
+    }
+
+    /**
+     * The PC-1500/1500A character set is 7-bit ASCII (with a few glyph substitutions in the
+     * 0x5B–0x7F range); it has no CP437 upper half. A listing bound for a PC-1500 that contains
+     * any character above 0x7F — an umlaut, say — cannot be represented on the device, so abort
+     * with a pointer to the offending line rather than silently mangling it.
+     */
+    private static void rejectNonAsciiForPc1500(String text, String file) {
+        int[] hit = SharpText.firstNonAsciiForPc1500(text);
+        if (hit != null) {
+            log.log(Level.SEVERE, "{0}: line {1}, column {2}: character ''{3}'' (U+{4}) is not "
+                            + "representable on the PC-1500 — its character set is 7-bit ASCII. "
+                            + "Use plain ASCII, or target the PC-1600 with --device pc1600.",
+                    new Object[]{file, hit[0], hit[1], (char) hit[2],
+                            String.format("%04X", hit[2])});
+            System.exit(1);
+        }
     }
 
     private static byte[] encodeAsciiReserve(byte[] rawData, CliArgs args) {
