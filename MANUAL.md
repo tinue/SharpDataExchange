@@ -265,10 +265,10 @@ Converts a BASIC program between its ASCII and tokenized representations, entire
 
 Any other content (Reserve Area, Variables, machine code, unrecognized) is rejected with an error.
 
-Both representations use the `.bas` extension. If `<input-file>` has no extension, `.bas` is appended. `<output-file>` is optional:
+`.bas` is the extension for ASCII BASIC listings, `.bbin` for tokenized BASIC. The input extension must agree with its actual content — an ASCII listing named `*.bbin`, or a tokenized file named `*.bas`, is rejected with an error. If `<input-file>` has no extension, `.bas` is appended. `<output-file>` is optional:
 
-- if given without an extension, `.bas` is appended;
-- if omitted, the output is written next to the input as `<input-base>_tokenized.bas` (ASCII → tokenized) or `<input-base>_ascii.bas` (tokenized → ASCII).
+- if given without an extension, the target extension is appended (`.bbin` when tokenizing, `.bas` when de-tokenizing); a given extension that contradicts the direction is rejected;
+- if omitted, the output is written next to the input as `<input-base>.bbin` (ASCII → tokenized) or `<input-base>.bas` (tokenized → ASCII).
 
 | Option | Description |
 |---|---|
@@ -282,13 +282,13 @@ Examples:
 
 ```
 java -jar SharpDataExchange.jar convert myprogram.bas
-    → myprogram_tokenized.bas  (CE-158 header + tokens)
+    → myprogram.bbin  (CE-158 header + tokens)
 
-java -jar SharpDataExchange.jar convert -d pc1600 myprogram.bas out.bas
-    → out.bas  (PC-1600 header + tokens)
+java -jar SharpDataExchange.jar convert -d pc1600 myprogram.bas out.bbin
+    → out.bbin  (PC-1600 header + tokens)
 
-java -jar SharpDataExchange.jar convert myprogram_tokenized.bas
-    → myprogram_tokenized_ascii.bas  (readable listing)
+java -jar SharpDataExchange.jar convert myprogram.bbin
+    → myprogram.bas  (readable listing)
 ```
 
 ---

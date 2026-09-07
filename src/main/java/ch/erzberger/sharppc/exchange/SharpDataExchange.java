@@ -18,6 +18,7 @@ import lombok.extern.java.Log;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 
@@ -348,11 +349,17 @@ public class SharpDataExchange {
 
     // ---- convert path ----
 
+    /** Extension for ASCII BASIC listings. */
+    private static final String ASCII_BASIC_EXT = ".bas";
+    /** Extension for tokenized BASIC (payload wrapped in a CE-158 / PC-1600 serial header). */
+    private static final String TOKENIZED_BASIC_EXT = ".bbin";
+
     /**
      * Offline tokenize / de-tokenize of a single BASIC file. Direction is chosen from the
      * file content, not its name: valid ASCII BASIC is tokenized (payload wrapped in a
      * CE-158/PC-1600 serial header), a header-carrying tokenized program is de-tokenized to
-     * ASCII. Anything else is rejected.
+     * ASCII. Anything else is rejected. The input extension must agree with the content
+     * ({@code .bas} = ASCII, {@code .bbin} = tokenized); a mismatch is rejected.
      */
     private static void runConvert(CliArgs args) {
         String inputFile = appendBasIfMissing(args.file());
@@ -366,9 +373,11 @@ public class SharpDataExchange {
         DataType type = new ContentDetector().detect(rawData);
         log.log(Level.FINE, "Detected input type: {0}", type);
 
+        checkExtensionMatchesContent(inputFile, type);
+
         switch (type) {
             case ASCII_BASIC -> {
-                String outFile = deriveConvertOutput(args.outputFile(), inputFile, "_tokenized");
+                String outFile = deriveConvertOutput(args.outputFile(), inputFile, TOKENIZED_BASIC_EXT);
                 byte[] block = encodeAsciiBasic(rawData, args);
                 FileHandler.writeBinary(outFile, block);
                 System.out.println("Converted " + inputFile + " -> " + outFile + " (tokenized, " + args.device() + ")");
@@ -384,7 +393,7 @@ public class SharpDataExchange {
                 }
                 byte[] payload = sliceFrom(rawData, headerOffset + header.getHeader().length);
                 PocketPcDevice device = header.getDevice() != null ? header.getDevice() : args.device();
-                String outFile = deriveConvertOutput(args.outputFile(), inputFile, "_ascii");
+                String outFile = deriveConvertOutput(args.outputFile(), inputFile, ASCII_BASIC_EXT);
                 getBinaryBasic(payload, OutputFormat.ASCII, device, outFile);
                 System.out.println("Converted " + inputFile + " -> " + outFile + " (ASCII, " + device + ")");
             }
@@ -404,24 +413,58 @@ public class SharpDataExchange {
             return path;
         }
         String name = Path.of(path).getFileName().toString();
-        return name.contains(".") ? path : path + ".bas";
+        return name.contains(".") ? path : path + ASCII_BASIC_EXT;
     }
 
     /**
-     * Resolve the output path for {@code convert}. When {@code givenOutput} is set it is used
-     * verbatim (with ".bas" appended if it has no extension). Otherwise the input file name is
-     * taken without its extension, {@code suffix + ".bas"} is appended, and the result is placed
-     * next to the input file.
+     * Reject an input whose extension contradicts its actual content: {@code .bas} is for ASCII
+     * BASIC listings only, {@code .bbin} is for tokenized BASIC only. Any other extension is left
+     * unconstrained.
      */
-    private static String deriveConvertOutput(String givenOutput, String inputFile, String suffix) {
+    private static void checkExtensionMatchesContent(String inputFile, DataType type) {
+        String lower = inputFile.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(TOKENIZED_BASIC_EXT) && type != DataType.BINARY_BASIC) {
+            log.log(Level.SEVERE, "{0} has a {1} extension (tokenized BASIC) but its content is {2}. "
+                            + "ASCII BASIC listings must use {3}.",
+                    new Object[]{inputFile, TOKENIZED_BASIC_EXT, type, ASCII_BASIC_EXT});
+            System.exit(1);
+        }
+        if (lower.endsWith(ASCII_BASIC_EXT) && type != DataType.ASCII_BASIC) {
+            log.log(Level.SEVERE, "{0} has a {1} extension (ASCII BASIC) but its content is {2}. "
+                            + "Tokenized BASIC must use {3}.",
+                    new Object[]{inputFile, ASCII_BASIC_EXT, type, TOKENIZED_BASIC_EXT});
+            System.exit(1);
+        }
+    }
+
+    /**
+     * Resolve the output path for {@code convert}. {@code newExt} is the extension required for
+     * this conversion direction ({@code .bas} for a de-tokenized listing, {@code .bbin} for a
+     * tokenized program). When {@code givenOutput} is set it is used verbatim; a missing
+     * extension gets {@code newExt}, and a {@code .bas}/{@code .bbin} extension that contradicts
+     * {@code newExt} is rejected. Otherwise the input file's base name is reused with
+     * {@code newExt}, placed next to the input file.
+     */
+    private static String deriveConvertOutput(String givenOutput, String inputFile, String newExt) {
         if (givenOutput != null && !givenOutput.isEmpty()) {
-            return appendBasIfMissing(givenOutput);
+            String name = Path.of(givenOutput).getFileName().toString();
+            if (!name.contains(".")) {
+                return givenOutput + newExt;
+            }
+            String lower = givenOutput.toLowerCase(Locale.ROOT);
+            String wrongExt = newExt.equals(ASCII_BASIC_EXT) ? TOKENIZED_BASIC_EXT : ASCII_BASIC_EXT;
+            if (lower.endsWith(wrongExt)) {
+                log.log(Level.SEVERE, "Output file {0} has a {1} extension, but this conversion "
+                        + "produces {2}.", new Object[]{givenOutput, wrongExt, newExt});
+                System.exit(1);
+            }
+            return givenOutput;
         }
         Path in = Path.of(inputFile);
         String name = in.getFileName().toString();
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
-        String outName = base + suffix + ".bas";
+        String outName = base + newExt;
         Path parent = in.getParent();
         return parent != null ? parent.resolve(outName).toString() : outName;
     }

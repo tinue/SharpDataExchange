@@ -29,7 +29,7 @@ class SharpDataExchangeConvertTest {
     void asciiToTokenized(@TempDir Path tmp) throws IOException {
         Path in = tmp.resolve("depreciation.bas");
         Files.copy(FIXTURES.resolve("depreciation.bas"), in);
-        Path out = tmp.resolve("out.bas");
+        Path out = tmp.resolve("out.bbin");
 
         SharpDataExchange.main(new String[]{"convert", in.toString(), out.toString()});
 
@@ -46,12 +46,12 @@ class SharpDataExchangeConvertTest {
     @Test
     @DisplayName("convert de-tokenizes a header-carrying tokenized program to ASCII")
     void tokenizedToAscii(@TempDir Path tmp) throws IOException {
-        Path in = tmp.resolve("dep-tok.bas");
+        Path in = tmp.resolve("dep-tok.bbin");
         Files.copy(FIXTURES.resolve("depreciation-tokenized-ce158header.bin"), in);
 
         SharpDataExchange.main(new String[]{"convert", in.toString()});
 
-        Path out = tmp.resolve("dep-tok_ascii.bas");
+        Path out = tmp.resolve("dep-tok.bas");
         assertTrue(Files.exists(out), "default ASCII output file was not written");
         String text = Files.readString(out, StandardCharsets.UTF_8);
         String firstLine = text.lines().filter(l -> !l.isBlank()).findFirst().orElseThrow();
@@ -65,7 +65,7 @@ class SharpDataExchangeConvertTest {
         Path src = tmp.resolve("src.bas");
         Files.copy(FIXTURES.resolve("depreciation.bas"), src);
 
-        Path tok1 = tmp.resolve("tok1.bas");
+        Path tok1 = tmp.resolve("tok1.bbin");
         SharpDataExchange.main(new String[]{"convert", src.toString(), tok1.toString()});
         Path ascii1 = tmp.resolve("ascii1.bas");
         SharpDataExchange.main(new String[]{"convert", tok1.toString(), ascii1.toString()});
@@ -75,7 +75,7 @@ class SharpDataExchangeConvertTest {
                 lineNumbers(Files.readString(ascii1, StandardCharsets.UTF_8)));
 
         // A second tokenize/de-tokenize pass reproduces the first listing byte-for-byte.
-        Path tok2 = tmp.resolve("tok2.bas");
+        Path tok2 = tmp.resolve("tok2.bbin");
         SharpDataExchange.main(new String[]{"convert", ascii1.toString(), tok2.toString()});
         Path ascii2 = tmp.resolve("ascii2.bas");
         SharpDataExchange.main(new String[]{"convert", tok2.toString(), ascii2.toString()});
