@@ -15,7 +15,8 @@ import java.util.logging.Logger;
 public class CliParser {
 
     private static final String TOOLNAME = "SharpDataExchange";
-    private static final String USAGE = TOOLNAME + " get [options] [<file>] | put [options] <file> | terminal [options]";
+    private static final String USAGE = TOOLNAME + " get [options] [<file>] | put [options] <file> | "
+            + "convert [options] <infile> [<outfile>] | terminal [options]";
 
     /**
      * Parse command-line arguments into a {@link CliArgs} record.
@@ -44,9 +45,10 @@ public class CliParser {
         }
 
         // Verb must be first
-        if (!"get".equals(first) && !"put".equals(first) && !"terminal".equals(first)) {
+        if (!"get".equals(first) && !"put".equals(first) && !"terminal".equals(first)
+                && !"convert".equals(first)) {
             formatter.printHelp(USAGE, null, options,
-                    "ERROR: Expected 'get', 'put' or 'terminal' as first argument, got: " + first);
+                    "ERROR: Expected 'get', 'put', 'convert' or 'terminal' as first argument, got: " + first);
             return null;
         }
 
@@ -78,13 +80,15 @@ public class CliParser {
             setLogLevel(Level.FINE);
         }
 
-        // File is required for 'put', optional for 'get' and 'terminal'
+        // File is required for 'put' and 'convert', optional for 'get' and 'terminal'
         String[] positional = line.getArgs();
-        if (positional.length == 0 && "put".equals(verb)) {
+        if (positional.length == 0 && ("put".equals(verb) || "convert".equals(verb))) {
             formatter.printHelp(USAGE, null, options, "ERROR: A file name is required");
             return null;
         }
         String file = positional.length > 0 ? positional[0] : null;
+        // 'convert' takes an optional second positional: the output file
+        String outputFile = "convert".equals(verb) && positional.length > 1 ? positional[1] : null;
 
         // Device
         PocketPcDevice device = PocketPcDevice.PC1500;
@@ -101,6 +105,11 @@ public class CliParser {
         if (line.hasOption("format")) {
             if ("terminal".equals(verb)) {
                 formatter.printHelp(USAGE, null, options, "ERROR: --format is not valid for terminal mode");
+                return null;
+            }
+            if ("convert".equals(verb)) {
+                formatter.printHelp(USAGE, null, options,
+                        "ERROR: --format is not valid for convert (direction is detected from file content)");
                 return null;
             }
             format = parseFormat(line.getOptionValue("format"), verb, options, formatter);
@@ -169,7 +178,8 @@ public class CliParser {
         log.log(Level.FINE, "Parsed CLI: verb={0} file={1} device={2} port={3} format={4}",
                 new Object[]{verb, file, device, port, format});
 
-        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader, dryRunFile);
+        return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader,
+                dryRunFile, outputFile);
     }
 
     private Options createOptions() {

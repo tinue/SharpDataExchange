@@ -51,6 +51,8 @@ public class SharpDataExchange {
                 runGet(cliArgs);
             } else if ("put".equals(cliArgs.verb())) {
                 runPut(cliArgs);
+            } else if ("convert".equals(cliArgs.verb())) {
+                runConvert(cliArgs);
             } else if ("terminal".equals(cliArgs.verb())) {
                 runTerminal(cliArgs);
             }
@@ -342,6 +344,86 @@ public class SharpDataExchange {
             log.log(Level.SEVERE, "Failed to read resource: {0}", resourceName);
             return "";
         }
+    }
+
+    // ---- convert path ----
+
+    /**
+     * Offline tokenize / de-tokenize of a single BASIC file. Direction is chosen from the
+     * file content, not its name: valid ASCII BASIC is tokenized (payload wrapped in a
+     * CE-158/PC-1600 serial header), a header-carrying tokenized program is de-tokenized to
+     * ASCII. Anything else is rejected.
+     */
+    private static void runConvert(CliArgs args) {
+        String inputFile = appendBasIfMissing(args.file());
+        byte[] rawData = FileHandler.readBinaryFile(inputFile);
+        if (rawData.length == 0) {
+            log.log(Level.SEVERE, "Input file is empty or could not be read: {0}", inputFile);
+            System.exit(1);
+        }
+
+        int headerOffset = findHeaderOffset(rawData);
+        DataType type = new ContentDetector().detect(rawData);
+        log.log(Level.FINE, "Detected input type: {0}", type);
+
+        switch (type) {
+            case ASCII_BASIC -> {
+                String outFile = deriveConvertOutput(args.outputFile(), inputFile, "_tokenized");
+                byte[] block = encodeAsciiBasic(rawData, args);
+                FileHandler.writeBinary(outFile, block);
+                System.out.println("Converted " + inputFile + " -> " + outFile + " (tokenized, " + args.device() + ")");
+            }
+            case BINARY_BASIC -> {
+                SerialHeader header = headerOffset >= 0
+                        ? SerialHeader.makeHeader(sliceFrom(rawData, headerOffset))
+                        : null;
+                if (header == null) {
+                    log.log(Level.SEVERE, "Tokenized BASIC input must carry a CE-158 or PC-1600 header: {0}",
+                            inputFile);
+                    System.exit(1);
+                }
+                byte[] payload = sliceFrom(rawData, headerOffset + header.getHeader().length);
+                PocketPcDevice device = header.getDevice() != null ? header.getDevice() : args.device();
+                String outFile = deriveConvertOutput(args.outputFile(), inputFile, "_ascii");
+                getBinaryBasic(payload, OutputFormat.ASCII, device, outFile);
+                System.out.println("Converted " + inputFile + " -> " + outFile + " (ASCII, " + device + ")");
+            }
+            default -> {
+                log.log(Level.SEVERE, "convert only handles BASIC; got {0}. A tokenized file must include a "
+                        + "CE-158 or PC-1600 header.", type);
+                System.exit(1);
+            }
+        }
+    }
+
+    /**
+     * Append ".bas" when the file name (last path segment) has no extension.
+     */
+    private static String appendBasIfMissing(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String name = Path.of(path).getFileName().toString();
+        return name.contains(".") ? path : path + ".bas";
+    }
+
+    /**
+     * Resolve the output path for {@code convert}. When {@code givenOutput} is set it is used
+     * verbatim (with ".bas" appended if it has no extension). Otherwise the input file name is
+     * taken without its extension, {@code suffix + ".bas"} is appended, and the result is placed
+     * next to the input file.
+     */
+    private static String deriveConvertOutput(String givenOutput, String inputFile, String suffix) {
+        if (givenOutput != null && !givenOutput.isEmpty()) {
+            return appendBasIfMissing(givenOutput);
+        }
+        Path in = Path.of(inputFile);
+        String name = in.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String outName = base + suffix + ".bas";
+        Path parent = in.getParent();
+        return parent != null ? parent.resolve(outName).toString() : outName;
     }
 
     // ---- terminal path ----

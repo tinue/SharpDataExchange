@@ -119,6 +119,41 @@ class CliParserTest {
         assertTrue(args.addUtils());
     }
 
+    @Test
+    @DisplayName("convert with input file returns correct CliArgs")
+    void convertWithInputFile() {
+        CliArgs args = parser.parse(new String[]{"convert", "program.bas"});
+        assertNotNull(args);
+        assertEquals("convert", args.verb());
+        assertEquals("program.bas", args.file());
+        assertNull(args.outputFile());
+        assertEquals(PocketPcDevice.PC1500, args.device());
+        assertNull(args.format());
+    }
+
+    @Test
+    @DisplayName("convert with input and output file sets outputFile")
+    void convertWithOutputFile() {
+        CliArgs args = parser.parse(new String[]{"convert", "in.bas", "out.bas"});
+        assertNotNull(args);
+        assertEquals("in.bas", args.file());
+        assertEquals("out.bas", args.outputFile());
+    }
+
+    @Test
+    @DisplayName("convert -d pc1600 sets PC1600 device")
+    void convertWithPc1600Device() {
+        CliArgs args = parser.parse(new String[]{"convert", "-d", "pc1600", "in.bas"});
+        assertNotNull(args);
+        assertEquals(PocketPcDevice.PC1600, args.device());
+    }
+
+    @Test
+    @DisplayName("convert rejects --format")
+    void convertRejectsFormat() {
+        assertNull(parser.parse(new String[]{"convert", "-f", "ascii", "in.bas"}));
+    }
+
     // ---- No-op returns (help / version) ----
 
     @Test
@@ -187,6 +222,12 @@ class CliParserTest {
     @DisplayName("put without file returns null")
     void putWithoutFile() {
         assertNull(parser.parse(new String[]{"put"}));
+    }
+
+    @Test
+    @DisplayName("convert without file returns null")
+    void convertWithoutFile() {
+        assertNull(parser.parse(new String[]{"convert"}));
     }
 
     @Test

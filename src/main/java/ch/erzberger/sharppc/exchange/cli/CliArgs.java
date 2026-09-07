@@ -3,8 +3,8 @@ package ch.erzberger.sharppc.exchange.cli;
 /**
  * Immutable DTO holding all parsed command-line arguments.
  *
- * @param verb         "get" or "put"
- * @param file         Output file (get) or input file (put)
+ * @param verb         "get", "put", "terminal" or "convert"
+ * @param file         Output file (get) or input file (put, convert)
  * @param device       Target Pocket PC device
  * @param port         Serial port name, or null for auto-detection
  * @param format       Output format (get) or forced input format (put); null means auto-detect
@@ -14,6 +14,7 @@ package ch.erzberger.sharppc.exchange.cli;
  * @param skipHeader  Whether to omit the serial header from the saved binary file (get only)
  * @param dryRunFile  Write the fully-formed data block (header + payload) to this path instead
  *                    of sending it over serial (put only), or null to send normally
+ * @param outputFile  Optional second positional: output file (convert only), or null
  */
 public record CliArgs(
         String verb,
@@ -25,5 +26,6 @@ public record CliArgs(
         Integer runAddress,
         boolean addUtils,
         boolean skipHeader,
-        String dryRunFile) {
+        String dryRunFile,
+        String outputFile) {
 }

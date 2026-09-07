@@ -150,7 +150,7 @@ java -jar SharpDataExchange.jar put myprogram.bas --device pc1600
 
 ## Concepts
 
-### Two commands: `get` and `put`
+### Two transfer commands: `get` and `put`
 
 All transfers involve the Pocket Computer as one party. The two commands describe what the PC does:
 
@@ -158,6 +158,8 @@ All transfers involve the Pocket Computer as one party. The two commands describ
 - **`put`** — the PC reads a file and sends it to the Pocket Computer
 
 On the Pocket Computer side, `get` corresponds to a **save** command (e.g. `CSAVE`), and `put` corresponds to a **load** command (e.g. `CLOAD`). This naming avoids confusion with the Pocket Computer's own `SAVE` and `LOAD` commands.
+
+A third command, **`convert`**, needs no Pocket Computer: it tokenizes or de-tokenizes a BASIC file on the PC alone. See [Command Reference](#command-reference).
 
 ### Who goes first
 
@@ -249,6 +251,45 @@ Reads `<input-file>` and sends it to the Pocket Computer.
 The file format is detected automatically from the file content. Use `--format` only if detection fails or to override.
 
 When sending a binary file with a CE-158 or PC-1600 header, `--device` can be omitted: SharpDataExchange reads the device type from the header and configures the serial port accordingly.
+
+### `convert` — Tokenize / de-tokenize a BASIC file offline
+
+```
+java -jar SharpDataExchange.jar convert [options] <input-file> [<output-file>]
+```
+
+Converts a BASIC program between its ASCII and tokenized representations, entirely on the PC — no Pocket Computer or serial connection is involved. The direction is chosen from the file content, not its name:
+
+- **ASCII BASIC in** → tokenized BASIC out. The tokenized payload is wrapped in a CE-158 or PC-1600 serial header (chosen by `--device`), so the result can be sent later with `put` or read back with `convert`.
+- **Tokenized BASIC in** → ASCII BASIC out. The input **must** carry a CE-158 or PC-1600 header (as produced by `get --format binary`, `put --dry-run`, or a previous `convert`); a headerless tokenized payload is rejected.
+
+Any other content (Reserve Area, Variables, machine code, unrecognized) is rejected with an error.
+
+Both representations use the `.bas` extension. If `<input-file>` has no extension, `.bas` is appended. `<output-file>` is optional:
+
+- if given without an extension, `.bas` is appended;
+- if omitted, the output is written next to the input as `<input-base>_tokenized.bas` (ASCII → tokenized) or `<input-base>_ascii.bas` (tokenized → ASCII).
+
+| Option | Description |
+|---|---|
+| `-d`, `--device <device>` | `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Selects the keyword table and header flavor when tokenizing. When de-tokenizing, the device is taken from the input file's header and `--device` is ignored. |
+| `-v`, `--verbose` | Verbose logging |
+| `-vv`, `--debug` | Debug logging |
+| `-V`, `--version` | Print version and exit |
+| `-h`, `--help` | Print help |
+
+Examples:
+
+```
+java -jar SharpDataExchange.jar convert myprogram.bas
+    → myprogram_tokenized.bas  (CE-158 header + tokens)
+
+java -jar SharpDataExchange.jar convert -d pc1600 myprogram.bas out.bas
+    → out.bas  (PC-1600 header + tokens)
+
+java -jar SharpDataExchange.jar convert myprogram_tokenized.bas
+    → myprogram_tokenized_ascii.bas  (readable listing)
+```
 
 ---
 
