@@ -69,7 +69,7 @@ If more than one matching port is present, use `-p` to specify the port explicit
 
 ### Emulators
 
-To exchange data with a PC-1600 emulator instead of real hardware, use `--device pc1600emul`. The emulator is reached over a host pseudo-terminal (e.g. `/dev/ttys006` on macOS), which the emulator creates while it runs. These ports cannot be auto-detected, so `--port` is required. `pc1600emul` sends the same data as `pc1600` but drops RTS/CTS hardware flow control (a pseudo-terminal has no handshake lines) and paces the transfer like the PC-1500.
+To exchange data with a PC-1600 emulator instead of real hardware, use `--device pc1600emul`. The emulator is reached over a host pseudo-terminal (e.g. `/dev/ttys006` on macOS), which the emulator creates while it runs. These ports cannot be auto-detected; when `--port` is omitted it defaults to the Calc-U-1600 app's fixed serial socket (`/tmp/calcu1600.serial`). `pc1600emul` sends the same data as `pc1600` but drops RTS/CTS hardware flow control (a pseudo-terminal has no handshake lines) and paces the transfer like the PC-1500.
 
 ```
 java -jar SharpDataExchange.jar put myprogram.bas --device pc1600emul --port /dev/ttys006
