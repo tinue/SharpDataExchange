@@ -213,6 +213,7 @@ If a filename is provided but lacks an extension (no dot in the name), the appro
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted) |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `binary` |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). Not recommended — see warning below. |
+| `--raw` | Dump the received bytes verbatim, with no header or content detection at all. Requires an output file (there's no header to derive a name from). See below. |
 | `-v`, `--verbose` | Verbose logging |
 | `-vv`, `--debug` | Debug logging |
 | `-V`, `--version` | Print version and exit |
@@ -226,6 +227,12 @@ If a filename is provided but lacks an extension (no dot in the name), the appro
 | `binary` | Raw binary as received, including the serial header. The resulting file can be sent back with `put` without re-tokenizing. |
 
 > **Warning — `--skip-header`:** Without the header, SharpDataExchange cannot identify the file type and will refuse to load it. Only use this option when you need a raw payload for an external tool. A warning is printed to the console when `--skip-header` is active.
+
+**`--raw`:** For capturing an arbitrary byte stream that carries no serial header at all — for example, a hand-written assembly program that just writes bytes to `COM1:`. `--device` still selects the baud rate and handshaking, and the per-device idle timeout (500 ms for PC-1600, 5000 ms for PC-1500/1500A) that normally serves as a fallback end-of-transfer detector becomes the *only* way the transfer is considered complete — no header/length parsing is attempted, so a byte sequence that happens to look like a header is not misinterpreted. `--format`, `--skip-header`, and content-based filename/extension detection are all bypassed. The exact bytes received are written to the given output file, and a 16-bit sum (mod 65536) of all received bytes is printed for a manual cross-check against a checksum the sender itself computes.
+
+```
+java -jar SharpDataExchange.jar get --device pc1600 --raw capture.bin
+```
 
 ### `put` — Send to Pocket Computer
 

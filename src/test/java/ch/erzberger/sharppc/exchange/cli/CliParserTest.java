@@ -254,6 +254,43 @@ class CliParserTest {
         assertNull(parser.parse(new String[]{"put", "--start-address", "ZZZZ", "prog.bin"}));
     }
 
+    // ---- --raw ----
+
+    @Test
+    @DisplayName("get --raw with file sets raw=true")
+    void getWithRaw() {
+        CliArgs args = parser.parse(new String[]{"get", "--raw", "capture.bin"});
+        assertNotNull(args);
+        assertTrue(args.raw());
+        assertEquals("capture.bin", args.file());
+    }
+
+    @Test
+    @DisplayName("get --raw without a file returns null")
+    void getRawWithoutFile() {
+        assertNull(parser.parse(new String[]{"get", "--raw"}));
+    }
+
+    @Test
+    @DisplayName("get without --raw defaults to raw=false")
+    void getWithoutRawDefaultsFalse() {
+        CliArgs args = parser.parse(new String[]{"get", "output.bas"});
+        assertNotNull(args);
+        assertFalse(args.raw());
+    }
+
+    @Test
+    @DisplayName("put --raw returns null (get only)")
+    void putRejectsRaw() {
+        assertNull(parser.parse(new String[]{"put", "--raw", "prog.bin"}));
+    }
+
+    @Test
+    @DisplayName("convert --raw returns null (get only)")
+    void convertRejectsRaw() {
+        assertNull(parser.parse(new String[]{"convert", "--raw", "in.bas"}));
+    }
+
     // ---- parseHexInt corner cases ----
 
     @Test

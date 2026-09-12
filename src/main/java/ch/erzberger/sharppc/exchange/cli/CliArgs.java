@@ -15,6 +15,8 @@ package ch.erzberger.sharppc.exchange.cli;
  * @param dryRunFile  Write the fully-formed data block (header + payload) to this path instead
  *                    of sending it over serial (put only), or null to send normally
  * @param outputFile  Optional second positional: output file (convert only), or null
+ * @param raw         Whether to dump the received bytes verbatim, with no header/content
+ *                    detection (get only)
  */
 public record CliArgs(
         String verb,
@@ -27,5 +29,6 @@ public record CliArgs(
         boolean addUtils,
         boolean skipHeader,
         String dryRunFile,
-        String outputFile) {
+        String outputFile,
+        boolean raw) {
 }

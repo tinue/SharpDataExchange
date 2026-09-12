@@ -22,18 +22,30 @@ import java.util.logging.Level;
  *   <li>PC-1500/PC-1500A: 5 000 ms timeout (variables via PRINT# are slow)</li>
  *   <li>PC-1600: 500 ms timeout</li>
  * </ul>
+ *
+ * <p>In raw mode ({@code rawMode = true}), header/length detection is skipped entirely —
+ * the transfer always ends via the idle watchdog, regardless of the byte content. This is
+ * for capturing an arbitrary byte stream (e.g. a hand-written assembly sender) with no
+ * serial header at all.
  */
 @Log
 public class DataReceiver implements ByteProcessor {
     private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     private final CountDownLatch done = new CountDownLatch(1);
     private final long timeout;
+    private final boolean rawMode;
     private Watchdog watchdog;
     private int expectedTotal = -1; // -1 = unknown; determined from header when possible
 
     public DataReceiver(PocketPcDevice device) {
+        this(device, false);
+    }
+
+    public DataReceiver(PocketPcDevice device, boolean rawMode) {
         this.timeout = device.isPC1500() ? 5000L : 500L;
-        log.log(Level.FINE, "DataReceiver created, timeout={0}ms", timeout);
+        this.rawMode = rawMode;
+        log.log(Level.FINE, "DataReceiver created, timeout={0}ms, rawMode={1}",
+                new Object[]{timeout, rawMode});
     }
 
     @Override
@@ -52,7 +64,9 @@ public class DataReceiver implements ByteProcessor {
 
         // Try to determine the expected byte count from the header (once, when we have enough bytes).
         // For CE-158 VARIABLES the length field is meaningless, so expectedTotal stays -1 for those.
-        if (expectedTotal < 0) {
+        // Skipped entirely in raw mode: an untyped byte stream has no header to parse, and any
+        // accidental header-shaped bytes inside it must not be mistaken for one.
+        if (!rawMode && expectedTotal < 0) {
             expectedTotal = SerialHeader.expectedTotalBytes(buffer.toByteArray());
             if (expectedTotal > 0) {
                 log.log(Level.FINE, "Header parsed — expecting {0} bytes total", expectedTotal);

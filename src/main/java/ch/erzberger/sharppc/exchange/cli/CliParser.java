@@ -120,8 +120,19 @@ public class CliParser {
 
         // get-only options
         boolean skipHeader = false;
+        boolean raw = false;
         if ("get".equals(verb)) {
             skipHeader = line.hasOption("skip-header");
+            raw = line.hasOption("raw");
+        } else if (line.hasOption("raw")) {
+            formatter.printHelp(USAGE, null, options, "ERROR: --raw is only valid for get");
+            return null;
+        }
+
+        if (raw && (positional.length == 0)) {
+            formatter.printHelp(USAGE, null, options,
+                    "ERROR: --raw requires an output file name (there is no header to derive one from)");
+            return null;
         }
 
         // put-only options
@@ -174,7 +185,7 @@ public class CliParser {
                 new Object[]{verb, file, device, port, format});
 
         return new CliArgs(verb, file, device, port, format, startAddress, runAddress, addUtils, skipHeader,
-                dryRunFile, outputFile);
+                dryRunFile, outputFile, raw);
     }
 
     private Options createOptions() {
@@ -197,6 +208,9 @@ public class CliParser {
                 "Prepend serial utility BASIC sub-program"));
         options.addOption(new Option(null, "skip-header", false,
                 "Omit serial header from saved binary file (get --format binary only; not recommended)"));
+        options.addOption(new Option(null, "raw", false,
+                "get only: dump received bytes verbatim, with no header or content detection "
+                        + "(for untyped byte streams, e.g. a custom assembly sender); requires an output file"));
         options.addOption(Option.builder().longOpt("dry-run")
                 .desc("put only: write the fully-formed data block (header + payload) to this "
                         + "file instead of sending it over serial").hasArg().build());

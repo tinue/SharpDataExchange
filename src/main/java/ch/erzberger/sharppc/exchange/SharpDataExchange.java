@@ -67,6 +67,11 @@ public class SharpDataExchange {
     // ---- get path ----
 
     private static void runGet(CliArgs args) {
+        if (args.raw()) {
+            runGetRaw(args);
+            return;
+        }
+
         // Step 1: receive all bytes from the Pocket Computer
         DataReceiver receiver = new DataReceiver(args.device());
         byte[] rawData;
@@ -159,6 +164,29 @@ public class SharpDataExchange {
             }
         }
         log.log(Level.FINE, "Written to: {0}", finalFile);
+    }
+
+    /**
+     * Dump a raw, untyped byte stream verbatim: no header detection, no content
+     * detection, no decoding. Waits for the device to fall silent (per-device idle
+     * timeout, same as the header-aware path's fallback watchdog), writes exactly what
+     * was received, and prints a checksum for a manual cross-check against the sender.
+     */
+    private static void runGetRaw(CliArgs args) {
+        DataReceiver receiver = new DataReceiver(args.device(), true);
+        byte[] rawData;
+        try (SerialPortWrapper port = openPort(args.device(), args.port(),
+                (ch.erzberger.sharppc.exchange.serial.ByteProcessor) receiver)) {
+            rawData = receiver.getDataWhenReady();
+        }
+        FileHandler.writeBinary(args.file(), rawData);
+
+        int checksum = 0;
+        for (byte b : rawData) {
+            checksum = (checksum + (b & 0xFF)) & 0xFFFF;
+        }
+        System.out.println("Saved " + rawData.length + " bytes to " + args.file());
+        System.out.println("Checksum (16-bit sum): 0x" + String.format("%04X", checksum));
     }
 
     private static String appendExtension(String filename, DataType type) {
