@@ -22,6 +22,13 @@ GitHub release notes, so keep entries user-facing.
   it; the release commit and tag still land correctly, only the final "no
   rebuild" promotion step was interrupted, so `v0.1.2`'s promotion had to be
   finished by hand.
+- The tokenizer discarded a `'` (the `REM` shorthand) instead of keeping it,
+  then went on to parse the rest of the line as code — a comment like
+  `10 'X1 = 1.POSITION ON STACK` had `POSITION`/`ON` mistaken for keywords.
+  `'` now behaves exactly like `REM`: it is kept, and everything after it on
+  the line is copied through verbatim. The dotted-abbreviation expander had
+  the same gap (`'CALL P. HERE` was corrupted into `'CALL PRINT HERE` before
+  the scanner ever saw it) and is fixed the same way.
 
 ## [0.1.2] - 2026-09-11
 

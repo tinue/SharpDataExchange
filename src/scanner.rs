@@ -3,9 +3,10 @@
 //! Single left-to-right pass per line, modelled on the PC-1500 ROM tokenizer
 //! (`TOK_INBUF` at `$F957`) rather than a grammar:
 //!
-//! 1. `'` (0x27) is discarded (cursor-control byte). A line that is only a line number
-//!    plus `'` therefore tokenizes to an empty body — the machine accepts it; the old
-//!    ANTLR path rejected it.
+//! 1. `'` (0x27) is a `REM` shorthand: it is kept, and everything after it on the line
+//!    is copied through verbatim with no further parsing (same as the `REM` case below).
+//!    A line that is only a line number plus `'` therefore tokenizes to a single-byte
+//!    body — the machine accepts it; the old ANTLR path rejected it.
 //! 2. `"` toggles verbatim string mode; inside a string every byte (spaces included) is
 //!    copied through.
 //! 3. Spaces outside strings are dropped.
@@ -85,7 +86,12 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
         }
 
         match b {
-            0x27 => i += 1,               // ' — discarded
+            0x27 => {
+                // ' — REM shorthand: keep it, copy the rest of the line verbatim.
+                content.push(b);
+                content.extend_from_slice(&bytes[i + 1..]);
+                i = bytes.len();
+            }
             0x20 => i += 1,               // space outside string — discarded
             0x22 => {
                 content.push(b);
@@ -153,9 +159,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_quote_comment_is_empty_body_not_an_error() {
-        assert_eq!(tok("10 '\n"), vec![0x00, 0x0A, 0x01, 0x0D]);
+    fn empty_line_is_empty_body_not_an_error() {
         assert_eq!(tok("10\n"), vec![0x00, 0x0A, 0x01, 0x0D]);
+    }
+
+    #[test]
+    fn quote_is_rem_shorthand_and_copies_rest_verbatim() {
+        // 10 'X1 = 1.POSITION ON STACK -> ' kept, rest untouched (no keyword matching)
+        let got = tok("10 'X1 = 1.POSITION ON STACK\n");
+        assert_eq!(got[..3], [0x00, 0x0A, 0x1A]);
+        assert_eq!(&got[3..], b"'X1 = 1.POSITION ON STACK\r");
+
+        // A bare quote still keeps the byte instead of vanishing.
+        assert_eq!(tok("10 '\n"), vec![0x00, 0x0A, 0x02, b'\'', 0x0D]);
     }
 
     #[test]
