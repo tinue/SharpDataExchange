@@ -11,7 +11,20 @@
 # notarized, stapled .pkg installer; it needs the APPLE_* repo secrets described
 # in .github/macos-signing.md.
 #
-# Workflow:
+# Full release-cycle recipe ("release this version"):
+#
+#   bin/release            # 1. pre-release: finalize CHANGELOG date, push "vX.Y.Z-pre",
+#                           #    wait for CI to build + publish the pre-release
+#   bin/release --release  # 2. only once step 1's CI is green: promote to the real
+#                           #    "vX.Y.Z" release, verify it published correctly
+#   bin/release --next     # 3. only once step 2 is verified: cut "dev-X.Y.(Z+1)" from
+#                           #    main, bump manifests, open a "- WIP" CHANGELOG section
+#
+# Stop and report rather than retrying if any step fails — see each mode's
+# pre-conditions below; some of these steps aren't safe to blindly re-run once
+# partially applied.
+#
+# Individual modes:
 #
 #   1. Local build + test only (no git/GitHub interaction):
 #        bin/release --build-only
@@ -22,6 +35,12 @@
 #      Pre-conditions: not on main; no staged-but-uncommitted changes; branch is
 #      in sync with its remote; branch fast-forward-merges into main; CHANGELOG.md
 #      has an entry for the current version.
+#      Also: if that CHANGELOG entry's date is still the "WIP" placeholder (or
+#      missing), it is stamped with today's date, committed, and pushed before
+#      the tag goes out — this only happens once; a real date is never
+#      overwritten by a later re-run. After pushing the tag, this waits for the
+#      triggered CI run to finish (build jobs run ~1-3 min, the final publish
+#      job ~11s) and aborts with the failing run's id if it doesn't succeed.
 #
 #   3. Full release (squash-merge branch -> main, tag "vX.Y.Z" on main; promotes
 #      the "vX.Y.Z-pre" pre-release's already-built assets to the real GitHub
@@ -30,6 +49,15 @@
 #        bin/release --release
 #      Pre-conditions: not on main; working tree clean; a "vX.Y.Z-pre" GitHub
 #      pre-release exists for this version.
+#      Note pushing the real tag does NOT trigger CI (only "-pre" tags do), so
+#      there is no Actions run to wait for here; instead this verifies the
+#      published GitHub release itself has all expected assets.
+#
+#   4. Start the next cycle (from main: cut "dev-X.Y.(Z+1)", bump Cargo.toml,
+#      open a new "## [X.Y.(Z+1)] - WIP" CHANGELOG section, commit, push):
+#        bin/release --next
+#      Pre-condition: "dev-X.Y.(Z+1)" must not already exist locally or on origin.
+#      Always a plain patch bump of whatever version is on main's Cargo.toml.
 #
 # Append --dry-run to any invocation to preview state-changing actions.
 #
@@ -42,6 +70,7 @@ set -euo pipefail
 
 CHANGELOG="CHANGELOG.md"
 MAIN_BRANCH="main"
+REPO_URL="https://github.com/tinue/SharpDataExchangeRust"
 
 VERSION=$(grep -m 1 '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "${VERSION:-}" ]; then
@@ -55,19 +84,25 @@ PRE_TAG="v${VERSION}-pre"
 
 DO_BUILD_ONLY=false
 DO_RELEASE=false
+DO_NEXT=false
 DRY_RUN=false
 
 for arg in "$@"; do
     case "$arg" in
         --build-only) DO_BUILD_ONLY=true ;;
         --release)    DO_RELEASE=true ;;
+        --next)       DO_NEXT=true ;;
         --dry-run)    DRY_RUN=true ;;
         *) echo "Unknown argument: $arg"; exit 1 ;;
     esac
 done
 
-if $DO_BUILD_ONLY && $DO_RELEASE; then
-    echo "Error: --build-only and --release are mutually exclusive."
+MODE_COUNT=0
+$DO_BUILD_ONLY && MODE_COUNT=$((MODE_COUNT + 1))
+$DO_RELEASE    && MODE_COUNT=$((MODE_COUNT + 1))
+$DO_NEXT       && MODE_COUNT=$((MODE_COUNT + 1))
+if [ "$MODE_COUNT" -gt 1 ]; then
+    echo "Error: --build-only, --release, and --next are mutually exclusive."
     exit 1
 fi
 
@@ -126,6 +161,106 @@ changelog_notes() {
     ' "$CHANGELOG"
 }
 
+# Replace "## [$VERSION] - WIP" (or a bare "## [$VERSION]") with today's date.
+# A no-op if the header already carries a real date — never overwrites one.
+finalize_changelog_date() {
+    if ! grep -qE "^## \[$VERSION\]( - WIP)?\$" "$CHANGELOG"; then
+        return 0
+    fi
+    local today
+    today=$(date +%Y-%m-%d)
+    echo "Setting $CHANGELOG release date for $VERSION to $today…"
+    run_cmd sed -i.bak -E "s/^## \[$VERSION\]( - WIP)?\$/## [$VERSION] - $today/" "$CHANGELOG"
+    run_cmd rm -f "$CHANGELOG.bak"
+    run_cmd git add "$CHANGELOG"
+    run_cmd git commit -m "Set $VERSION release date to $today"
+    run_cmd git push
+}
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# ── 4. Next cycle ─────────────────────────────────────────────────────────────
+#
+# Standalone: no local build/test (nothing to test yet) and no `gh` calls
+# (pure git + file edits), so this runs before those preambles.
+
+if $DO_NEXT; then
+    stash_unstaged_changes
+    if ! git diff --cached --quiet; then
+        echo "Error: staged but uncommitted changes present. Commit them first."
+        git status --short
+        exit 1
+    fi
+
+    echo "Fetching ${MAIN_BRANCH}…"
+    run_cmd git fetch origin "$MAIN_BRANCH" --quiet
+    run_cmd git checkout "$MAIN_BRANCH"
+    run_cmd git merge --ff-only "origin/$MAIN_BRANCH"
+
+    if $DRY_RUN; then
+        # checkout/merge above were no-ops under --dry-run, so Cargo.toml here
+        # is still whatever branch we started on; use the top-of-file reading
+        # as an approximation for preview purposes only.
+        CUR_VERSION="$VERSION"
+    else
+        CUR_VERSION=$(grep -m 1 '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+    fi
+    IFS=. read -r NEXT_MAJ NEXT_MIN NEXT_PAT <<< "$CUR_VERSION"
+    NEXT_VERSION="$NEXT_MAJ.$NEXT_MIN.$((NEXT_PAT + 1))"
+    NEXT_BRANCH="dev-$NEXT_VERSION"
+
+    if git show-ref --verify --quiet "refs/heads/$NEXT_BRANCH"; then
+        echo "Error: branch '$NEXT_BRANCH' already exists locally."
+        exit 1
+    fi
+    if git ls-remote --exit-code --heads origin "$NEXT_BRANCH" &>/dev/null; then
+        echo "Error: branch '$NEXT_BRANCH' already exists on origin."
+        exit 1
+    fi
+
+    echo "Starting $NEXT_VERSION on branch $NEXT_BRANCH (from $MAIN_BRANCH @ $CUR_VERSION)…"
+    run_cmd git checkout -b "$NEXT_BRANCH"
+
+    run_cmd sed -i.bak -E "s/^version([[:space:]]*=[[:space:]]*)\"$CUR_VERSION\"/version\1\"$NEXT_VERSION\"/" Cargo.toml
+    run_cmd rm -f Cargo.toml.bak
+    run_cmd cargo check --quiet
+
+    if $DRY_RUN; then
+        echo "[dry-run] would insert '## [$NEXT_VERSION] - WIP' section and update compare links in $CHANGELOG"
+    else
+        awk -v nextver="$NEXT_VERSION" -v curver="$CUR_VERSION" -v repo="$REPO_URL" '
+            {
+                if ($0 == "## [Unreleased]") {
+                    print
+                    print ""
+                    print "## [" nextver "] - WIP"
+                    next
+                }
+                if ($0 ~ /^\[Unreleased\]: /) {
+                    print "[Unreleased]: " repo "/compare/v" nextver "...HEAD"
+                    print "[" nextver "]: " repo "/compare/v" curver "...v" nextver
+                    next
+                }
+                print
+            }
+        ' "$CHANGELOG" > "$CHANGELOG.tmp"
+        mv "$CHANGELOG.tmp" "$CHANGELOG"
+    fi
+
+    run_cmd git add Cargo.toml Cargo.lock "$CHANGELOG"
+    run_cmd git commit -m "Bump version to $NEXT_VERSION"
+    run_cmd git push -u origin "$NEXT_BRANCH"
+
+    if $DRY_RUN; then
+        echo "Done.  [dry-run] No changes made."
+    else
+        echo "Done.  $NEXT_BRANCH is checked out and pushed, starting $NEXT_VERSION."
+        echo "  CHANGELOG.md's '## [$NEXT_VERSION] - WIP' section is where new entries go;"
+        echo "  running 'bin/release' will replace WIP with the real date on the first pre-release."
+    fi
+    exit 0
+fi
+
 # ── 1. Local build + test ──────────────────────────────────────────────────────
 
 echo "SharpDataExchange $VERSION  (tag: $TAG)"
@@ -145,8 +280,6 @@ if ! command -v gh &>/dev/null; then
     echo "Error: 'gh' CLI not found. Install with: brew install gh"
     exit 1
 fi
-
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # ── 3. Full release ───────────────────────────────────────────────────────────
 
@@ -197,6 +330,11 @@ if $DO_RELEASE; then
         rm -rf "$DIST_DIR"
         exit 1
     fi
+    if $DRY_RUN; then
+        EXPECTED_COUNT=0
+    else
+        EXPECTED_COUNT=$(ls -1 "$DIST_DIR" | wc -l | tr -d ' ')
+    fi
 
     echo "Squash-merging $CURRENT_BRANCH into ${MAIN_BRANCH}…"
     run_cmd git fetch origin "$MAIN_BRANCH" --quiet
@@ -228,9 +366,25 @@ if $DO_RELEASE; then
 
     if $DRY_RUN; then
         echo "Done.  [dry-run] No changes made."
-    else
-        echo "Done.  Release ${TAG}: $(gh release view "${TAG}" --json url -q .url)"
+        exit 0
     fi
+
+    # Pushing the real tag does not trigger CI (only "-pre" tags do), so there
+    # is no Actions run to wait for here — verify the release object itself.
+    echo "Verifying published release ${TAG}…"
+    ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+    if [ "$ASSET_COUNT" -lt "$EXPECTED_COUNT" ]; then
+        echo "Error: release $TAG has $ASSET_COUNT asset(s), expected $EXPECTED_COUNT (from $PRE_TAG)."
+        echo "  main and the tag are already updated; only the asset upload is incomplete."
+        echo "  Retry manually:  gh release upload $TAG <missing files>"
+        exit 1
+    fi
+    if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
+        echo "Error: release $TAG was created as a draft unexpectedly."
+        exit 1
+    fi
+
+    echo "Done.  Release ${TAG}: $(gh release view "${TAG}" --json url -q .url)  ($ASSET_COUNT assets)"
     exit 0
 fi
 
@@ -253,6 +407,9 @@ if [ -z "$UPSTREAM" ]; then
     echo "Error: branch '$CURRENT_BRANCH' has no upstream. Run: git push -u origin $CURRENT_BRANCH"
     exit 1
 fi
+
+finalize_changelog_date
+
 if [ "$(git rev-parse HEAD)" != "$(git rev-parse "$UPSTREAM")" ]; then
     AHEAD=$(git rev-list --count "${UPSTREAM}..HEAD")
     if [ "$AHEAD" -gt 0 ]; then
@@ -291,12 +448,39 @@ if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
     exit 1
 fi
 
+SHA=$(git rev-parse HEAD)
+
 # -f: the -pre tag is disposable and moves to the latest pre-release commit.
 run_cmd git tag -f "$PRE_TAG"
 run_cmd git push -f origin "$PRE_TAG"
 
 if $DRY_RUN; then
     echo "Done.  [dry-run] No changes made."
-else
-    echo "Done.  CI is building $PRE_TAG — watch it with:  gh run watch"
+    exit 0
 fi
+
+echo "Waiting for CI run triggered by $PRE_TAG (commit ${SHA:0:7})…"
+RUN_ID=""
+for _ in $(seq 1 30); do
+    RUN_ID=$(gh run list --workflow=release.yml --event=push \
+        --json databaseId,headSha,createdAt \
+        --jq "[.[] | select(.headSha == \"$SHA\")] | sort_by(.createdAt) | last | .databaseId // empty" \
+        2>/dev/null || true)
+    [ -n "$RUN_ID" ] && break
+    sleep 2
+done
+if [ -z "$RUN_ID" ]; then
+    echo "Error: no CI run for $PRE_TAG (commit ${SHA:0:7}) appeared within 60s."
+    echo "  Check manually:  gh run list --workflow=release.yml"
+    exit 1
+fi
+
+echo "Found run $RUN_ID — waiting for it to finish (build jobs ~1-3 min, publish ~11s)…"
+if ! gh run watch "$RUN_ID" --exit-status; then
+    echo "Error: CI run $RUN_ID for $PRE_TAG failed."
+    echo "  View logs:   gh run view $RUN_ID --log-failed"
+    echo "  Fix the problem, then re-run 'bin/release' to re-cut $PRE_TAG."
+    exit 1
+fi
+
+echo "Done.  CI run $RUN_ID succeeded — $PRE_TAG is published."
