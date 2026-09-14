@@ -29,6 +29,11 @@ GitHub release notes, so keep entries user-facing.
   the line is copied through verbatim. The dotted-abbreviation expander had
   the same gap (`'CALL P. HERE` was corrupted into `'CALL PRINT HERE` before
   the scanner ever saw it) and is fixed the same way.
+- `bin/release`'s `publish` job 403'd downloading its own build artifacts
+  ("Failed to ListArtifacts") — a side effect of the earlier
+  `download-artifact@v4->v7` bump: v5+ lists/downloads artifacts via the
+  Actions REST API, which needs `actions: read`, but the job's `permissions:`
+  block only granted `contents: write`. Added `actions: read`.
 
 ## [0.1.2] - 2026-09-11
 

@@ -244,6 +244,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # download-artifact v5+ lists/downloads artifacts via the Actions REST
+      # API, which needs this explicitly once a job sets its own `permissions:`
+      # block (that drops the default token's implicit actions:read) — without
+      # it the download step 403s ("Failed to ListArtifacts").
+      actions: read
     steps:
       - uses: actions/checkout@v5
         with:
