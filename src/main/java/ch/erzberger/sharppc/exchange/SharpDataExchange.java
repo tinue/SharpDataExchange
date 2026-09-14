@@ -18,6 +18,7 @@ import lombok.extern.java.Log;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.logging.Level;
@@ -167,10 +168,12 @@ public class SharpDataExchange {
     }
 
     /**
-     * Dump a raw, untyped byte stream verbatim: no header detection, no content
-     * detection, no decoding. Waits for the device to fall silent (per-device idle
-     * timeout, same as the header-aware path's fallback watchdog), writes exactly what
-     * was received, and prints a checksum for a manual cross-check against the sender.
+     * Dump a raw, untyped byte stream verbatim: no content detection, no decoding.
+     * Waits for the device to fall silent (per-device idle timeout, same as the
+     * header-aware path's fallback watchdog). If a serial header matching the target
+     * device is found, it is stripped before writing and checksumming — a raw dump is
+     * meant to hold just the payload, and a header for the wrong device family is left
+     * untouched since it's presumably payload data, not a real header.
      */
     private static void runGetRaw(CliArgs args) {
         DataReceiver receiver = new DataReceiver(args.device(), true);
@@ -179,14 +182,37 @@ public class SharpDataExchange {
                 (ch.erzberger.sharppc.exchange.serial.ByteProcessor) receiver)) {
             rawData = receiver.getDataWhenReady();
         }
-        FileHandler.writeBinary(args.file(), rawData);
+
+        byte[] payload = rawData;
+        int headerOffset = findHeaderOffset(rawData);
+        if (headerOffset >= 0) {
+            SerialHeader header = SerialHeader.makeHeader(sliceFrom(rawData, headerOffset));
+            if (header != null && deviceFamilyMatches(header.getDevice(), args.device())) {
+                byte[] beforeHeader = Arrays.copyOfRange(rawData, 0, headerOffset);
+                byte[] afterHeader = sliceFrom(rawData, headerOffset + header.getHeader().length);
+                payload = concat(beforeHeader, afterHeader);
+                System.out.println("Detected " + header.getDevice() + " header — stripped from raw dump");
+            }
+        }
+
+        FileHandler.writeBinary(args.file(), payload);
 
         int checksum = 0;
-        for (byte b : rawData) {
+        for (byte b : payload) {
             checksum = (checksum + (b & 0xFF)) & 0xFFFF;
         }
-        System.out.println("Saved " + rawData.length + " bytes to " + args.file());
+        System.out.println("Saved " + payload.length + " bytes to " + args.file());
         System.out.println("Checksum (16-bit sum): 0x" + String.format("%04X", checksum));
+    }
+
+    /**
+     * True when a parsed header's device and the CLI-specified device belong to the
+     * same hardware family (CE-158 headers can't distinguish PC-1500 from PC-1500A;
+     * PC-1600 headers don't record whether the link is to an emulator).
+     */
+    private static boolean deviceFamilyMatches(PocketPcDevice headerDevice, PocketPcDevice argDevice) {
+        return (headerDevice.isPC1500() && argDevice.isPC1500())
+                || (headerDevice.isPC1600() && argDevice.isPC1600());
     }
 
     private static String appendExtension(String filename, DataType type) {
