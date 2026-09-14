@@ -2,8 +2,8 @@
 //! `INSTATT.` -> `INSTAT` + `THEN`). Faithful port of Java
 //! `preprocess/AbbreviationExpander`, run per line before the scanner.
 //!
-//! No expansion happens inside string literals or after `REM`. The PC-1600 registry
-//! defines no abbreviations, so this is a no-op there.
+//! No expansion happens inside string literals, after `REM`, or after `'` (the `REM`
+//! shorthand). The PC-1600 registry defines no abbreviations, so this is a no-op there.
 
 use crate::registry::Registry;
 
@@ -42,7 +42,7 @@ pub fn expand(line: &str, reg: &Registry) -> String {
                 } else {
                     result.push_str(&word);
                     word.clear();
-                    if is_rem_start(&result) {
+                    if c == '\'' || is_rem_start(&result) {
                         state = State::InComment;
                     }
                     result.push(c);
@@ -153,5 +153,11 @@ mod tests {
     #[test]
     fn pc1600_is_noop() {
         assert_eq!(expand("10 P. 1", registry::pc1600()), "10 P. 1");
+    }
+
+    #[test]
+    fn quote_comment_is_verbatim_like_rem() {
+        assert_eq!(ex("10 'CALL P. HERE"), "10 'CALL P. HERE");
+        assert_eq!(ex("10 X = 1 : 'CALL P. HERE"), "10 X = 1 : 'CALL P. HERE");
     }
 }

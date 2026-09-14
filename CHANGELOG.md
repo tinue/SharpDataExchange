@@ -11,6 +11,30 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-11
+
+### Fixed
+
+- `bin/release --release` crashed with `MAIN_BRANCH: unbound variable` while
+  tagging the release commit: this bash mis-parses a bare `$VAR` immediately
+  followed by a multi-byte UTF-8 character (here the `…` right after
+  `$MAIN_BRANCH`) as part of the variable name. Braced `${MAIN_BRANCH}` fixes
+  it; the release commit and tag still land correctly, only the final "no
+  rebuild" promotion step was interrupted, so `v0.1.2`'s promotion had to be
+  finished by hand.
+- The tokenizer discarded a `'` (the `REM` shorthand) instead of keeping it,
+  then went on to parse the rest of the line as code — a comment like
+  `10 'X1 = 1.POSITION ON STACK` had `POSITION`/`ON` mistaken for keywords.
+  `'` now behaves exactly like `REM`: it is kept, and everything after it on
+  the line is copied through verbatim. The dotted-abbreviation expander had
+  the same gap (`'CALL P. HERE` was corrupted into `'CALL PRINT HERE` before
+  the scanner ever saw it) and is fixed the same way.
+- `bin/release`'s `publish` job 403'd downloading its own build artifacts
+  ("Failed to ListArtifacts") — a side effect of the earlier
+  `download-artifact@v4->v7` bump: v5+ lists/downloads artifacts via the
+  Actions REST API, which needs `actions: read`, but the job's `permissions:`
+  block only granted `contents: write`. Added `actions: read`.
+
 ## [0.1.2] - 2026-09-11
 
 ### Fixed
@@ -84,7 +108,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tinue/SharpDataExchangeRust/releases/tag/v0.1.0

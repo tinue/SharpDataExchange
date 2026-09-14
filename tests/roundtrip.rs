@@ -60,12 +60,12 @@ fn roundtrip_contract() {
 #[test]
 fn empty_quote_comment_roundtrips_without_error() {
     let out = convert(b"10 '\n", Device::Pc1500, None, false).unwrap().bytes;
-    assert_eq!(out, vec![0x00, 0x0A, 0x01, 0x0D]);
+    assert_eq!(out, vec![0x00, 0x0A, 0x02, b'\'', 0x0D]);
 
     // With a header, then back to ASCII (LF forced so the assertion holds on Windows).
     let bbin = convert(b"10 '\n", Device::Pc1500, Some("t"), true).unwrap().bytes;
     let ascii = convert_with(&bbin, Device::Pc1500, None, true, LineEnding::Lf).unwrap().bytes;
-    assert_eq!(ascii, b"10\n");
+    assert_eq!(ascii, b"10 '\n");
 }
 
 #[test]
