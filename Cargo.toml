@@ -1,6 +1,6 @@
 [package]
 name = "sharpdx"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "ROM-style Sharp PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer (convert-verb parity)"
 authors = ["Martin Erzberger <martin@erzberger.ch>"]
