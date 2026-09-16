@@ -21,6 +21,19 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
         if payload[pos] == 0 && payload[pos + 1] == 0 {
             break;
         }
+        // 0xFF 0x00 0x00: boundary between this named program segment and the next
+        // one (the device supports multiple GOSUB "LABEL"-addressable sub-programs
+        // per save; each restarts its own line numbering, and its own first line is
+        // normally a `<n> "LABEL"` line naming it). Confirmed on real PC-1600
+        // hardware: RUN executes the last segment first, then jumps to the first;
+        // touching PRO/scroll after loading corrupts the program. "#SEGMENT" is the
+        // reserved round-trippable marker line for this byte sequence (see
+        // `scanner::tokenize`'s handling of it).
+        if payload[pos] == 0xFF && pos + 2 < payload.len() && payload[pos + 1] == 0 && payload[pos + 2] == 0 {
+            lines.push("#SEGMENT".to_string());
+            pos += 3;
+            continue;
+        }
         if pos + 2 >= payload.len() {
             bail!("malformed payload: truncated line header at offset {pos}");
         }
@@ -66,6 +79,15 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
                         pos += 1;
                     }
                 }
+            } else if b1 == 0x1F && pos + 3 <= content_end && payload[pos + 3] == 0x00 {
+                // 0x1F [lineNum hi] [lineNum lo] 0x00: the compact binary line-number
+                // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN target
+                // (confirmed against real PC-1600 memory dumps; the PC-1500 always
+                // uses plain ASCII digits instead). Ported from Java
+                // `BinaryBasicDetokenizer`.
+                let target = ((payload[pos + 1] as u16) << 8) | payload[pos + 2] as u16;
+                s.push_str(&target.to_string());
+                pos += 4;
             } else if b1 == 0x22 {
                 s.push('"');
                 pos += 1;

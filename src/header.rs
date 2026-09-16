@@ -82,9 +82,11 @@ fn build_pc1600(payload_len: usize) -> Vec<u8> {
     h[7] = ((dl >> 16) & 0xFF) as u8;
     // 0x08..0x0B load address = 0, 0x0B..0x0E auto-run = 0
 
-    // 0x0E..0x10 end-of-header marker (matches the reference fixtures)
+    // 0x0E..0x10 end-of-header marker. Confirmed against a real PC-1600 capture
+    // (ff 10 00 00 21 ... 00 0f) and matches current Java `Pc1600Header.getHeader()`,
+    // which appends {0x00, 0x0F} here.
     h[14] = 0x00;
-    h[15] = 0xF0;
+    h[15] = 0x0F;
     h
 }
 
@@ -110,7 +112,7 @@ mod tests {
         assert_eq!(h.len(), 16);
         assert_eq!(&h[0..5], &[0xFF, 0x10, 0x00, 0x00, 0x21]);
         assert_eq!(&h[5..8], &[0x4A, 0x02, 0x00]); // 586 LE
-        assert_eq!(&h[14..16], &[0x00, 0xF0]);
+        assert_eq!(&h[14..16], &[0x00, 0x0F]);
         let p = find(&h).unwrap();
         assert_eq!(p.device, Device::Pc1600);
         assert_eq!(p.payload_start(), 16);

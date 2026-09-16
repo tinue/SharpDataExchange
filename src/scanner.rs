@@ -26,7 +26,7 @@
 use anyhow::{bail, Result};
 
 use crate::cp437;
-use crate::registry::{Registry, REM_CODE};
+use crate::registry::{Device, Registry, REM_CODE};
 
 const CR: u8 = 0x0D;
 /// Max tokenized content bytes per line: the length prefix is a single byte and also
@@ -39,6 +39,15 @@ pub fn tokenize(source: &str, reg: &Registry) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     for raw in source.split('\n') {
         let line = raw.trim_start_matches([' ', '\t', '\r']);
+        // "#SEGMENT" is the reserved marker line for the real 0xFF 0x00 0x00 boundary
+        // between two named GOSUB "LABEL" program segments saved together (confirmed
+        // on real PC-1600 hardware). Checked before the generic comment-drop rule
+        // below, since it also starts with '#'. See `detokenize::detokenize`'s
+        // handling of the same byte sequence.
+        if line.trim_end_matches([' ', '\t', '\r']) == "#SEGMENT" {
+            out.extend_from_slice(&[0xFF, 0x00, 0x00]);
+            continue;
+        }
         // Column-0 `//` or `#` documentation comments are never sent to the device.
         if line.starts_with("//") || line.starts_with('#') {
             continue;
@@ -72,6 +81,13 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
     let mut content = Vec::with_capacity(bytes.len());
     let mut i = 0usize;
     let mut in_string = false;
+    // PC-1600 patches a constant GOTO/GOSUB/THEN target into a compact binary form
+    // (0x1F [hi] [lo] 0x00) instead of plain ASCII digits; PC-1500 always uses ASCII
+    // digits. Confirmed against real memory dumps of both machines. Set right after
+    // emitting one of those three keywords; consumed (or dropped) by the very next
+    // token.
+    let use_binary_line_number_targets = reg.device() == Device::Pc1600;
+    let mut expect_line_number_target = false;
 
     while i < bytes.len() {
         let b = bytes[i];
@@ -85,6 +101,37 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
             continue;
         }
 
+        if b == 0x20 {
+            // Space outside a string is transparent to the line-number-target flag:
+            // "GOSUB 50" (space from normalized/user text) must still be recognized,
+            // same as the glued "GOSUB50".
+            i += 1;
+            continue;
+        }
+
+        let was_expecting_line_number_target = expect_line_number_target;
+        expect_line_number_target = false;
+
+        if use_binary_line_number_targets && was_expecting_line_number_target && b.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() && i - start < 5 {
+                i += 1;
+            }
+            if let Ok(target) = std::str::from_utf8(&bytes[start..i]).unwrap().parse::<u32>() {
+                if target <= 0xFFFF {
+                    content.push(0x1F);
+                    content.push((target >> 8) as u8);
+                    content.push((target & 0xFF) as u8);
+                    content.push(0x00);
+                    continue;
+                }
+            }
+            // Not a plain 16-bit line number after all (e.g. overflowed): fall back
+            // to emitting the digits as plain CP437 bytes.
+            content.extend_from_slice(&bytes[start..i]);
+            continue;
+        }
+
         match b {
             0x27 => {
                 // ' — REM shorthand: keep it, copy the rest of the line verbatim.
@@ -92,7 +139,6 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
                 content.extend_from_slice(&bytes[i + 1..]);
                 i = bytes.len();
             }
-            0x20 => i += 1,               // space outside string — discarded
             0x22 => {
                 content.push(b);
                 in_string = true;
@@ -115,6 +161,8 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
                     if kw.code == REM_CODE {
                         content.extend_from_slice(&bytes[i..]);
                         i = bytes.len();
+                    } else if matches!(kw.name, "GOTO" | "GOSUB" | "THEN") {
+                        expect_line_number_target = true;
                     }
                 }
                 None => {
