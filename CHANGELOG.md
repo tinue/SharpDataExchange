@@ -13,6 +13,16 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.1.4] - WIP
 
+### Fixed
+
+- PC-1600 keyword table: added native `PEEK`, `PEEK#`, `POKE`, and `CALL` tokens
+  (0xF26D, 0xF26E, 0xF28C, 0xF282), distinct from `XPEEK`/`XPEEK#`/`XPOKE`/`XCALL`,
+  which tokenize the PC-1500's codes for those same names.
+- PC-1600 keyword table: removed the spurious `PROTOCOL` entry, which is a CE-158
+  extension keyword, not a native PC-1600 one.
+- PC-1600 keyword table: listed `DEV$` and `COM$` explicitly (same codes as
+  CE-158's), since they are native to the PC-1600's built-in serial port.
+
 ## [0.1.3] - 2026-09-11
 
 ### Fixed
