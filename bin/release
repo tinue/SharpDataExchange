@@ -169,7 +169,7 @@ finalize_changelog_date() {
     fi
     local today
     today=$(date +%Y-%m-%d)
-    echo "Setting $CHANGELOG release date for $VERSION to $today…"
+    echo "Setting $CHANGELOG release date for $VERSION to ${today}…"
     run_cmd sed -i.bak -E "s/^## \[$VERSION\]( - WIP)?\$/## [$VERSION] - $today/" "$CHANGELOG"
     run_cmd rm -f "$CHANGELOG.bak"
     run_cmd git add "$CHANGELOG"
