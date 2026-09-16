@@ -42,13 +42,14 @@
 #      triggered CI run to finish (build jobs run ~1-3 min, the final publish
 #      job ~11s) and aborts with the failing run's id if it doesn't succeed.
 #
-#   3. Full release (squash-merge branch -> main, tag "vX.Y.Z" on main; promotes
-#      the "vX.Y.Z-pre" pre-release's already-built assets to the real GitHub
-#      release — no rebuild, CI is not re-triggered; the "-pre" tag/release is
-#      then deleted):
+#   3. Full release (squash-merge branch -> main, tag "vX.Y.Z" on main; RETARGETS
+#      the "vX.Y.Z-pre" GitHub release onto that tag in place via `gh release
+#      edit --tag` -- same release object, same already-uploaded assets, no
+#      download/re-upload, no rebuild, CI is not re-triggered -- matching how
+#      GitHub's own "promote to release" UI action works):
 #        bin/release --release
 #      Pre-conditions: not on main; working tree clean; a "vX.Y.Z-pre" GitHub
-#      pre-release exists for this version.
+#      pre-release exists for this version with at least one asset attached.
 #      Note pushing the real tag does NOT trigger CI (only "-pre" tags do), so
 #      there is no Actions run to wait for here; instead this verifies the
 #      published GitHub release itself has all expected assets.
@@ -296,12 +297,20 @@ if $DO_RELEASE; then
         exit 1
     fi
 
-    if ! gh release view "$PRE_TAG" &>/dev/null; then
+    # One round trip for both checks below -- gh's --jq is self-contained
+    # (no system `jq` needed), so it can format both fields into one line.
+    if ! PRE_INFO=$(gh release view "$PRE_TAG" --json isPrerelease,assets \
+        --jq '(.isPrerelease | tostring) + " " + (.assets | length | tostring)' 2>/dev/null); then
         echo "Error: no GitHub pre-release '$PRE_TAG'. Run 'bin/release' first."
         exit 1
     fi
-    if ! gh release view "$PRE_TAG" --json isPrerelease -q .isPrerelease | grep -q true; then
+    read -r PRE_IS_PRERELEASE PRE_ASSET_COUNT <<< "$PRE_INFO"
+    if [ "$PRE_IS_PRERELEASE" != "true" ]; then
         echo "Error: '$PRE_TAG' exists but is not a pre-release. Nothing to promote."
+        exit 1
+    fi
+    if [ "$PRE_ASSET_COUNT" -eq 0 ]; then
+        echo "Error: '$PRE_TAG' has no assets attached. Something went wrong building it."
         exit 1
     fi
 
@@ -322,20 +331,6 @@ if $DO_RELEASE; then
     COMMIT_MSG="${COMMIT_MSG}"$'\n\n''skip-ci: identical to the already-built pre-release'
     COMMIT_MSG="${COMMIT_MSG}"$'\n''[skip ci]'
 
-    echo "Downloading ${PRE_TAG}'s already-built assets…"
-    DIST_DIR=$(mktemp -d)
-    run_cmd gh release download "$PRE_TAG" --dir "$DIST_DIR" --clobber
-    if ! $DRY_RUN && [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ]; then
-        echo "Error: no assets found on pre-release ${PRE_TAG}."
-        rm -rf "$DIST_DIR"
-        exit 1
-    fi
-    if $DRY_RUN; then
-        EXPECTED_COUNT=0
-    else
-        EXPECTED_COUNT=$(ls -1 "$DIST_DIR" | wc -l | tr -d ' ')
-    fi
-
     echo "Squash-merging $CURRENT_BRANCH into ${MAIN_BRANCH}…"
     run_cmd git fetch origin "$MAIN_BRANCH" --quiet
     run_cmd git checkout "$MAIN_BRANCH"
@@ -354,15 +349,18 @@ if $DO_RELEASE; then
 
     NOTES_FILE=$(mktemp)
     printf '%s\n' "$NOTES" > "$NOTES_FILE"
-    echo "Publishing release ${TAG} (promoting ${PRE_TAG}'s assets, no rebuild)…"
-    run_cmd gh release create "$TAG" "$DIST_DIR"/* \
+    echo "Retargeting ${PRE_TAG}'s GitHub release onto ${TAG} in place (no re-upload)…"
+    run_cmd gh release edit "$PRE_TAG" \
+        --tag "$TAG" \
         --title "SharpDataExchange $VERSION" \
-        --notes-file "$NOTES_FILE"
+        --notes-file "$NOTES_FILE" \
+        --prerelease=false \
+        --latest
     rm -f "$NOTES_FILE"
-    rm -rf "$DIST_DIR"
 
-    echo "Removing pre-release ${PRE_TAG}…"
-    run_cmd gh release delete "$PRE_TAG" --yes --cleanup-tag
+    echo "Removing the now-orphaned ${PRE_TAG} tag ref…"
+    run_cmd git push origin --delete "$PRE_TAG" || true
+    run_cmd git tag -d "$PRE_TAG" 2>/dev/null || true
 
     if $DRY_RUN; then
         echo "Done.  [dry-run] No changes made."
@@ -372,19 +370,25 @@ if $DO_RELEASE; then
     # Pushing the real tag does not trigger CI (only "-pre" tags do), so there
     # is no Actions run to wait for here — verify the release object itself.
     echo "Verifying published release ${TAG}…"
-    ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
-    if [ "$ASSET_COUNT" -lt "$EXPECTED_COUNT" ]; then
-        echo "Error: release $TAG has $ASSET_COUNT asset(s), expected $EXPECTED_COUNT (from $PRE_TAG)."
-        echo "  main and the tag are already updated; only the asset upload is incomplete."
-        echo "  Retry manually:  gh release upload $TAG <missing files>"
+    # One round trip for all four checks/values below -- see the matching
+    # comment on the pre-release fetch above for why a single --jq call.
+    TAG_INFO=$(gh release view "$TAG" --json assets,isDraft,isPrerelease,url \
+        --jq '(.assets | length | tostring) + " " + (.isDraft | tostring) + " " + (.isPrerelease | tostring) + " " + .url')
+    read -r ASSET_COUNT TAG_IS_DRAFT TAG_IS_PRERELEASE TAG_URL <<< "$TAG_INFO"
+    if [ "$ASSET_COUNT" -ne "$PRE_ASSET_COUNT" ]; then
+        echo "Error: release $TAG has $ASSET_COUNT asset(s), expected $PRE_ASSET_COUNT (unchanged from $PRE_TAG)."
         exit 1
     fi
-    if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
-        echo "Error: release $TAG was created as a draft unexpectedly."
+    if [ "$TAG_IS_DRAFT" = "true" ]; then
+        echo "Error: release $TAG is a draft unexpectedly."
+        exit 1
+    fi
+    if [ "$TAG_IS_PRERELEASE" = "true" ]; then
+        echo "Error: release $TAG is still marked as a pre-release."
         exit 1
     fi
 
-    echo "Done.  Release ${TAG}: $(gh release view "${TAG}" --json url -q .url)  ($ASSET_COUNT assets)"
+    echo "Done.  Release ${TAG}: $TAG_URL  ($ASSET_COUNT assets)"
     exit 0
 fi
 
