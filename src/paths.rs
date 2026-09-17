@@ -9,6 +9,7 @@ use anyhow::{bail, Context, Result};
 use crate::detect::Content;
 use crate::detokenize::LineEnding;
 use crate::registry::Device;
+use crate::scanner::SegmentMarker;
 
 const ASCII_EXT: &str = "bas";
 const TOKENIZED_EXT: &str = "bbin";
@@ -42,7 +43,7 @@ pub fn run_convert(
     };
 
     let name = in_path.file_stem().and_then(|s| s.to_str());
-    let outcome = crate::convert::convert_with(&raw, device, name, true, eol)?;
+    let outcome = crate::convert::convert_with(&raw, device, name, true, eol, SegmentMarker::Wire)?;
     let out_path = derive_convert_output(outfile, &in_path, target_ext)?;
     std::fs::write(&out_path, &outcome.bytes)
         .with_context(|| format!("cannot write {}", out_path.display()))?;

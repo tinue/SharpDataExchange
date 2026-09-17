@@ -53,7 +53,7 @@ fn direct_scanner_matches_headerless_fixture() {
     // Same as above but exercising scanner::tokenize directly (no abbreviation pass —
     // this listing has no dotted forms).
     let src = String::from_utf8(fixture("LineLengthTest.bas")).unwrap();
-    let out = scanner::tokenize(&src, sharpdx::registry::pc1500()).unwrap();
+    let out = scanner::tokenize(&src, sharpdx::registry::pc1500(), sharpdx::SegmentMarker::Wire).unwrap();
     assert_eq!(out, fixture("LineLengthTest.bin"));
 }
 

@@ -33,19 +33,44 @@ const CR: u8 = 0x0D;
 /// counts the trailing `0x0D`, so `content + 1 <= 255`.
 const MAX_CONTENT: usize = 254;
 
+/// How a `#SEGMENT` marker line is rendered into bytes.
+///
+/// A device saving multiple GOSUB "LABEL" program segments together emits, on the
+/// wire, a 3-byte sentinel: `0xFF` (end of this segment) followed by two `0x00`
+/// pacing bytes the sender uses to know when to insert an extra pause (see the
+/// `sender` module's `SEGMENT_MARKER`/`SEGMENT_PAUSE`). But the ROM's own serial
+/// *receiver* only stores that leading `0xFF` into the program area -- the two
+/// pacing bytes never land in RAM (confirmed against a real PC-1600's `LOAD
+/// "COM1:"` pointers: `BASPRG_END` comes out exactly 2 bytes short of the 3-byte
+/// form, once per marker). So a caller building bytes to go out over a real or
+/// emulated serial line wants [`SegmentMarker::Wire`]; a caller building bytes to
+/// poke directly into RAM (bypassing the serial protocol entirely, e.g. a fast
+/// preset loader) wants [`SegmentMarker::Memory`], which emits just the `0xFF`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentMarker {
+    /// `0xFF 0x00 0x00` -- what actually goes out over COM1:.
+    Wire,
+    /// `0xFF` alone -- what the ROM's receiver actually stores in the program area.
+    Memory,
+}
+
 /// Tokenize a full ASCII BASIC listing. `source` must already have had dotted
 /// abbreviations expanded (see [`crate::abbrev`]); newlines may be `\n` or `\r\n`.
-pub fn tokenize(source: &str, reg: &Registry) -> Result<Vec<u8>> {
+/// `marker` selects how a `#SEGMENT` line is rendered -- see [`SegmentMarker`].
+pub fn tokenize(source: &str, reg: &Registry, marker: SegmentMarker) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     for raw in source.split('\n') {
         let line = raw.trim_start_matches([' ', '\t', '\r']);
-        // "#SEGMENT" is the reserved marker line for the real 0xFF 0x00 0x00 boundary
-        // between two named GOSUB "LABEL" program segments saved together (confirmed
-        // on real PC-1600 hardware). Checked before the generic comment-drop rule
-        // below, since it also starts with '#'. See `detokenize::detokenize`'s
-        // handling of the same byte sequence.
+        // "#SEGMENT" is the reserved marker line for the boundary between two named
+        // GOSUB "LABEL" program segments saved together (confirmed on real PC-1600
+        // hardware). Checked before the generic comment-drop rule below, since it
+        // also starts with '#'. See `detokenize::detokenize`'s handling of the same
+        // byte sequence, and [`SegmentMarker`] for which bytes this emits.
         if line.trim_end_matches([' ', '\t', '\r']) == "#SEGMENT" {
-            out.extend_from_slice(&[0xFF, 0x00, 0x00]);
+            match marker {
+                SegmentMarker::Wire => out.extend_from_slice(&[0xFF, 0x00, 0x00]),
+                SegmentMarker::Memory => out.push(0xFF),
+            }
             continue;
         }
         // Column-0 `//` or `#` documentation comments are never sent to the device.
@@ -185,7 +210,7 @@ mod tests {
     use crate::registry;
 
     fn tok(src: &str) -> Vec<u8> {
-        tokenize(src, registry::pc1500()).unwrap()
+        tokenize(src, registry::pc1500(), SegmentMarker::Wire).unwrap()
     }
 
     #[test]
@@ -252,6 +277,18 @@ mod tests {
     #[test]
     fn line_too_long_errors() {
         let long = format!("10 {}\n", "\"x\";:".repeat(60)); // ~300 content bytes
-        assert!(tokenize(&long, registry::pc1500()).is_err());
+        assert!(tokenize(&long, registry::pc1500(), SegmentMarker::Wire).is_err());
+    }
+
+    #[test]
+    fn segment_marker_wire_vs_memory() {
+        assert_eq!(
+            tokenize("#SEGMENT\n", registry::pc1500(), SegmentMarker::Wire).unwrap(),
+            vec![0xFF, 0x00, 0x00]
+        );
+        assert_eq!(
+            tokenize("#SEGMENT\n", registry::pc1500(), SegmentMarker::Memory).unwrap(),
+            vec![0xFF]
+        );
     }
 }

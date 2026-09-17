@@ -46,6 +46,7 @@ pub use convert::{convert, convert_with, ConvertOutcome};
 pub use detect::Content;
 pub use detokenize::LineEnding;
 pub use registry::Device;
+pub use scanner::SegmentMarker;
 
 /// Crate version string (`CARGO_PKG_VERSION`).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

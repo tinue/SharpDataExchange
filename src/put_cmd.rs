@@ -9,6 +9,7 @@ use crate::detect::{self, Content};
 use crate::detokenize::LineEnding;
 use crate::header::{self, FileType, ParsedHeader};
 use crate::pocket_device::PocketDevice;
+use crate::scanner::SegmentMarker;
 use crate::serial::{self, RealTransport, Transport};
 use crate::{filename, sender};
 
@@ -104,6 +105,7 @@ pub fn build_put_bytes(
             Some(&name),
             true,
             LineEnding::Platform,
+            SegmentMarker::Wire,
         )?;
         let built_header = header::find(&outcome.bytes).expect("convert_with always wraps a header");
         return Ok((outcome.bytes, built_header.header_len));

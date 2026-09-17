@@ -32,6 +32,7 @@ fn tokenize_matches_ce158_payload() {
         sde_tokenize(
             SdeDevice::Pc1500,
             1,
+            SdeSegmentMarker::Wire,
             name.as_ptr(),
             src.as_ptr(),
             src.len(),
@@ -44,6 +45,51 @@ fn tokenize_matches_ce158_payload() {
     let want = fixture("depreciation-tokenized-ce158header.bin");
     assert_eq!(&got[27..], &want[27..], "payload");
     assert_eq!(&got[..5], &want[..5]);
+}
+
+#[test]
+fn tokenize_segment_marker_wire_vs_memory() {
+    let src = b"5 \"A\"\n10 END\n#SEGMENT\n5 \"B\"\n10 END\n";
+    let name = CString::new("split").unwrap();
+
+    let mut wire = ptr::null_mut();
+    let mut wire_len = 0usize;
+    let rc = unsafe {
+        sde_tokenize(
+            SdeDevice::Pc1600,
+            0,
+            SdeSegmentMarker::Wire,
+            name.as_ptr(),
+            src.as_ptr(),
+            src.len(),
+            &mut wire,
+            &mut wire_len,
+        )
+    };
+    assert_eq!(rc, SDE_OK, "err: {}", last_error());
+    let wire_bytes = take_buf(wire, wire_len);
+
+    let mut mem = ptr::null_mut();
+    let mut mem_len = 0usize;
+    let rc = unsafe {
+        sde_tokenize(
+            SdeDevice::Pc1600,
+            0,
+            SdeSegmentMarker::Memory,
+            name.as_ptr(),
+            src.as_ptr(),
+            src.len(),
+            &mut mem,
+            &mut mem_len,
+        )
+    };
+    assert_eq!(rc, SDE_OK, "err: {}", last_error());
+    let mem_bytes = take_buf(mem, mem_len);
+
+    assert_eq!(wire_bytes.len(), mem_bytes.len() + 2, "Memory drops the 2 pacing bytes");
+    assert!(wire_bytes.windows(3).any(|w| w == [0xFF, 0x00, 0x00]));
+    assert!(!mem_bytes.windows(3).any(|w| w == [0xFF, 0x00, 0x00]));
+    assert!(mem_bytes.contains(&0xFF));
 }
 
 #[test]
@@ -176,7 +222,16 @@ fn null_args_rejected() {
     let mut out = ptr::null_mut();
     let mut out_len = 0usize;
     let rc = unsafe {
-        sde_tokenize(SdeDevice::Pc1500, 0, ptr::null(), ptr::null(), 5, &mut out, &mut out_len)
+        sde_tokenize(
+            SdeDevice::Pc1500,
+            0,
+            SdeSegmentMarker::Wire,
+            ptr::null(),
+            ptr::null(),
+            5,
+            &mut out,
+            &mut out_len,
+        )
     };
     assert_eq!(rc, SDE_ERR_ARGS);
 }
@@ -192,9 +247,15 @@ fn header_is_current() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("include/sharpdx.h"),
     )
     .unwrap();
-    for sym in
-        ["sde_tokenize", "sde_detokenize", "sde_convert", "sde_detect", "SdeDevice", "SdeLineEnding"]
-    {
+    for sym in [
+        "sde_tokenize",
+        "sde_detokenize",
+        "sde_convert",
+        "sde_detect",
+        "SdeDevice",
+        "SdeLineEnding",
+        "SdeSegmentMarker",
+    ] {
         assert!(h.contains(sym), "generated header missing {sym}");
     }
 }

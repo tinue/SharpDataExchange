@@ -13,6 +13,16 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.1.5] - WIP
 
+### Added
+
+- `sde_tokenize` (and `convert_with`/`scanner::tokenize`) take a `SdeSegmentMarker`
+  option controlling how a `#SEGMENT` line tokenizes: `Wire` (`0xFF 0x00 0x00`, what
+  `SAVE "COM1:"` actually transmits, the previous and default behavior) or `Memory`
+  (bare `0xFF`, what the ROM's serial receiver actually stores into the program
+  area). A caller poking tokenized bytes directly into RAM -- bypassing the serial
+  protocol entirely -- should use `Memory`, since including the two wire-only pacing
+  bytes made `BASPRG_END` come out 2 bytes too high per marker.
+
 ## [0.1.4] - 2026-09-16
 
 ### Fixed

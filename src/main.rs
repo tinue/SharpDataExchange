@@ -316,7 +316,7 @@ fn run_stdio(device: Device, eol: LineEnding) -> Result<()> {
     if input.is_empty() {
         bail!("no input on stdin");
     }
-    let outcome = sharpdx::convert_with(&input, device, None, true, eol)?;
+    let outcome = sharpdx::convert_with(&input, device, None, true, eol, sharpdx::SegmentMarker::Wire)?;
     std::io::stdout().write_all(&outcome.bytes)?;
     Ok(())
 }
