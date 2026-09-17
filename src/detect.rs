@@ -1,7 +1,7 @@
 //! Content-type detection, ported from Java `detect/ContentDetector`. `convert` chooses
 //! its direction from this, never from the file name.
 
-use crate::header::{self};
+use crate::header::{self, FileType};
 use crate::registry::Device;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,8 +12,14 @@ pub enum Content {
     Ce158Basic,
     /// Tokenized BASIC behind a PC-1600 header.
     Pc1600Basic,
-    /// Anything else: a header for a non-BASIC file type, binary data, or text that
-    /// does not look like a BASIC listing.
+    /// Machine language behind a CE-158 header (PC-1500 family). Not handled by
+    /// `convert`/`paths` (BASIC-only); used by `get`/`put`.
+    Ce158Machine,
+    /// Machine language behind a PC-1600 header. Not handled by `convert`/`paths`
+    /// (BASIC-only); used by `get`/`put`.
+    Pc1600Machine,
+    /// Anything else: a header for an out-of-scope file type (Reserve, Variables),
+    /// binary data, or text that does not look like a BASIC listing.
     Unknown,
 }
 
@@ -23,6 +29,8 @@ impl Content {
             Content::AsciiBasic => "ASCII BASIC",
             Content::Ce158Basic => "tokenized BASIC (CE-158 header)",
             Content::Pc1600Basic => "tokenized BASIC (PC-1600 header)",
+            Content::Ce158Machine => "machine language (CE-158 header)",
+            Content::Pc1600Machine => "machine language (PC-1600 header)",
             Content::Unknown => "unrecognized content",
         }
     }
@@ -39,23 +47,11 @@ impl Content {
 
 pub fn detect(data: &[u8]) -> Content {
     if let Some(h) = header::find(data) {
-        return match h.device {
-            Device::Pc1500 => {
-                // CE-158 type byte at offset+1: 0x40 '@' = BASIC.
-                if data.get(h.offset + 1) == Some(&0x40) {
-                    Content::Ce158Basic
-                } else {
-                    Content::Unknown
-                }
-            }
-            Device::Pc1600 => {
-                // PC-1600 type byte at offset+4: 0x21 = BASIC.
-                if data.get(h.offset + 4) == Some(&0x21) {
-                    Content::Pc1600Basic
-                } else {
-                    Content::Unknown
-                }
-            }
+        return match (h.device, h.file_type) {
+            (Device::Pc1500, FileType::Basic) => Content::Ce158Basic,
+            (Device::Pc1500, FileType::Machine) => Content::Ce158Machine,
+            (Device::Pc1600, FileType::Basic) => Content::Pc1600Basic,
+            (Device::Pc1600, FileType::Machine) => Content::Pc1600Machine,
         };
     }
     if looks_like_ascii_basic(data) {

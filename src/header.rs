@@ -1,6 +1,6 @@
-//! CE-158 / PC-1600 serial file headers that wrap a tokenized BASIC payload.
-//! Ported from Java `header/Ce158Header`, `header/Pc1600Header` and
-//! `SharpDataExchange.findHeaderOffset`.
+//! CE-158 / PC-1600 serial file headers that wrap a tokenized BASIC or machine-language
+//! payload. Ported from Java `header/Ce158Header`, `header/Pc1600Header` and
+//! `SharpDataExchange.findHeaderOffset` / `SerialHeader.expectedTotalBytes`.
 
 use crate::cp437;
 use crate::registry::Device;
@@ -8,14 +8,35 @@ use crate::registry::Device;
 const CE158_LEN: usize = 27;
 const PC1600_LEN: usize = 16;
 
-/// A recognized header found in a byte buffer.
+/// The payload type recorded in a header. Reserve Area and Variables headers exist on
+/// the wire (CE-158 type chars `'A'` / `'H'`) but are intentionally not recognized here
+/// — out of scope for `get`/`put` per `requirements-put-get.md` §3/§9. Whether the
+/// PC-1600 protocol has equivalent header types at all is *unresearched*, not confirmed
+/// absent (see requirements §3) — this enum simply doesn't model them either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileType {
+    Basic,
+    Machine,
+}
+
+/// A recognized header found in a byte buffer, fully parsed.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedHeader {
     pub device: Device,
+    pub file_type: FileType,
     /// Offset of the header's first byte within the input buffer.
     pub offset: usize,
     /// Header length in bytes (`offset + header_len` is where the payload starts).
     pub header_len: usize,
+    /// Payload length in bytes, already corrected for CE-158's "capacity - 1" encoding.
+    pub length: usize,
+    /// Load start address. Only meaningful when `file_type == Machine`, else 0.
+    pub start_addr: u32,
+    /// Auto-run address. Only meaningful when `file_type == Machine`, else 0.
+    pub run_addr: u32,
+    /// CE-158 filename field (CP437, trimmed), `None` if blank or not a CE-158 header
+    /// (the PC-1600 header has no filename field at all).
+    pub filename: Option<String>,
 }
 
 impl ParsedHeader {
@@ -24,63 +45,234 @@ impl ParsedHeader {
     }
 }
 
-/// Locate and identify a CE-158 or PC-1600 header, tolerating leading capture noise
-/// (e.g. stray `0x00` bytes) before the magic. Returns the first match.
+/// Locate and fully parse a CE-158 or PC-1600 header, tolerating leading capture noise
+/// (e.g. stray `0x00` bytes) before the magic. Returns the first match whose type byte
+/// is recognized (`Basic` or `Machine`); a header with an out-of-scope type (Reserve,
+/// Variables, or anything else unrecognized) is treated as not found and scanning does
+/// not continue past it — mirrors the Java behavior of `expectedTotalBytes`, which stops
+/// at the first magic match rather than searching for a second, later one.
 pub fn find(data: &[u8]) -> Option<ParsedHeader> {
     for i in 0..data.len() {
         // CE-158: 0x01, <type>, "COM"
         if data[i] == 0x01 && data.get(i + 2..i + 5) == Some(b"COM") {
-            return Some(ParsedHeader { device: Device::Pc1500, offset: i, header_len: CE158_LEN });
+            return parse_ce158(data, i);
         }
         // PC-1600: FF 10 00 00
         if data.get(i..i + 4) == Some(&[0xFF, 0x10, 0x00, 0x00][..]) {
-            return Some(ParsedHeader { device: Device::Pc1600, offset: i, header_len: PC1600_LEN });
+            return parse_pc1600(data, i);
         }
     }
     None
 }
 
-/// Build the serial header for `device` wrapping a tokenized BASIC payload of
-/// `payload_len` bytes. `name` supplies the CE-158 filename (upper-cased, CP437,
-/// truncated to 16 chars, NUL-padded); it is unused for PC-1600.
-pub fn build(device: Device, name: Option<&str>, payload_len: usize) -> Vec<u8> {
-    match device {
-        Device::Pc1500 => build_ce158(name.unwrap_or(""), payload_len),
-        Device::Pc1600 => build_pc1600(payload_len),
+fn ce158_file_type(type_char: u8) -> Option<FileType> {
+    match type_char {
+        0x40 => Some(FileType::Basic),   // '@'
+        0x42 => Some(FileType::Machine), // 'B'
+        // 'A' (Reserve) / 'H' (Variables) recognized on the wire but out of scope here.
+        _ => None,
     }
 }
 
-fn build_ce158(name: &str, payload_len: usize) -> Vec<u8> {
+fn pc1600_file_type(type_byte: u8) -> Option<FileType> {
+    match type_byte {
+        0x21 => Some(FileType::Basic),
+        0x10 => Some(FileType::Machine),
+        // No other PC-1600 type byte is modeled — unresearched, see module doc comment.
+        _ => None,
+    }
+}
+
+fn parse_ce158(data: &[u8], offset: usize) -> Option<ParsedHeader> {
+    if data.len() < offset + CE158_LEN {
+        return None;
+    }
+    let file_type = ce158_file_type(data[offset + 1])?;
+
+    let name_bytes = &data[offset + 0x05..offset + 0x15];
+    let decoded = cp437::decode(name_bytes);
+    let trimmed = decoded.trim_end_matches(['\0', ' ']);
+    let filename = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+
+    let start_addr_raw = be16(data, offset + 0x15) as u32;
+    // Wire stores "capacity - 1" (CE-158 Technical Reference Manual §13).
+    let length = be16(data, offset + 0x17) as usize + 1;
+    let run_addr_raw = be16(data, offset + 0x19) as u32;
+
+    let (start_addr, run_addr) = if file_type == FileType::Machine {
+        (start_addr_raw, run_addr_raw)
+    } else {
+        (0, 0)
+    };
+
+    Some(ParsedHeader {
+        device: Device::Pc1500,
+        file_type,
+        offset,
+        header_len: CE158_LEN,
+        length,
+        start_addr,
+        run_addr,
+        filename,
+    })
+}
+
+fn parse_pc1600(data: &[u8], offset: usize) -> Option<ParsedHeader> {
+    if data.len() < offset + PC1600_LEN {
+        return None;
+    }
+    let file_type = pc1600_file_type(data[offset + 0x04])?;
+
+    let length = le24(data, offset + 0x05) as usize;
+    let start_addr_raw = le24(data, offset + 0x08);
+    let run_addr_raw = le24(data, offset + 0x0B);
+
+    let (start_addr, run_addr) = if file_type == FileType::Machine {
+        (start_addr_raw, run_addr_raw)
+    } else {
+        (0, 0)
+    };
+
+    Some(ParsedHeader {
+        device: Device::Pc1600,
+        file_type,
+        offset,
+        header_len: PC1600_LEN,
+        length,
+        start_addr,
+        run_addr,
+        filename: None,
+    })
+}
+
+fn be16(data: &[u8], at: usize) -> u16 {
+    ((data[at] as u16) << 8) | data[at + 1] as u16
+}
+
+fn le24(data: &[u8], at: usize) -> u32 {
+    (data[at] as u32) | ((data[at + 1] as u32) << 8) | ((data[at + 2] as u32) << 16)
+}
+
+/// Scan a growing buffer (as bytes arrive over serial) and report the total number of
+/// bytes expected for a complete transfer (header + payload), once known.
+///
+/// Returns `None` when:
+/// - no recognized header magic/type has been found yet (need more bytes, or the stream
+///   never carries one — e.g. a plain ASCII listing or an unsupported header type such
+///   as Reserve/Variables, whose length field would be meaningless anyway);
+/// - a header's magic was found but there aren't yet enough bytes to read it fully.
+///
+/// Mirrors Java `SerialHeader.expectedTotalBytes`: it stops at the first magic match
+/// rather than continuing to scan for a second one once bytes are insufficient.
+pub fn expected_total_bytes(data: &[u8]) -> Option<usize> {
+    for i in 0..data.len() {
+        if data[i] == 0x01 && data.get(i + 2..i + 5) == Some(b"COM") {
+            if data.len() < i + CE158_LEN {
+                return None;
+            }
+            return parse_ce158(data, i).map(|h| h.payload_start() + h.length);
+        }
+        if data.get(i..i + 4) == Some(&[0xFF, 0x10, 0x00, 0x00][..]) {
+            if data.len() < i + PC1600_LEN {
+                return None;
+            }
+            return parse_pc1600(data, i).map(|h| h.payload_start() + h.length);
+        }
+    }
+    None
+}
+
+/// Arguments for building a serial header. `name` supplies the CE-158 filename
+/// (upper-cased, CP437, truncated to 16 chars, NUL-padded); unused for PC-1600.
+/// `start_addr`/`run_addr` are only written when `file_type == Machine`.
+pub struct BuildHeader<'a> {
+    pub device: Device,
+    pub file_type: FileType,
+    pub name: Option<&'a str>,
+    pub payload_len: usize,
+    pub start_addr: u32,
+    pub run_addr: u32,
+}
+
+/// Build the serial header for `device` wrapping a tokenized BASIC payload of
+/// `payload_len` bytes. Thin wrapper over [`build_header`] for the common BASIC case,
+/// kept so existing call sites (and their tests) are unaffected by the richer API.
+pub fn build(device: Device, name: Option<&str>, payload_len: usize) -> Vec<u8> {
+    build_header(BuildHeader {
+        device,
+        file_type: FileType::Basic,
+        name,
+        payload_len,
+        start_addr: 0,
+        run_addr: 0,
+    })
+}
+
+/// Build a serial header per `spec`. See [`BuildHeader`].
+pub fn build_header(spec: BuildHeader) -> Vec<u8> {
+    match spec.device {
+        Device::Pc1500 => build_ce158(spec),
+        Device::Pc1600 => build_pc1600(spec),
+    }
+}
+
+fn build_ce158(spec: BuildHeader) -> Vec<u8> {
     let mut h = vec![0u8; CE158_LEN];
     h[0] = 0x01; // magic
-    h[1] = 0x40; // type '@' = tokenized BASIC
+    h[1] = match spec.file_type {
+        FileType::Basic => 0x40,   // '@'
+        FileType::Machine => 0x42, // 'B'
+    };
     h[2..5].copy_from_slice(b"COM");
 
+    let name = spec.name.unwrap_or("");
     let upper: String = name.chars().take(16).collect::<String>().to_ascii_uppercase();
     let mut fname = cp437::encode_lossy(&upper);
     fname.truncate(16);
     h[5..5 + fname.len()].copy_from_slice(&fname);
-    // 0x15..0x17 load address = 0 (already zero)
+
+    if spec.file_type == FileType::Machine {
+        h[0x15] = (spec.start_addr >> 8) as u8;
+        h[0x16] = (spec.start_addr & 0xFF) as u8;
+    }
 
     // 0x17..0x19 data length, big-endian, "capacity - 1"
-    let dl = payload_len.wrapping_sub(1) as u16;
+    let dl = spec.payload_len.wrapping_sub(1) as u16;
     h[0x17] = (dl >> 8) as u8;
     h[0x18] = (dl & 0xFF) as u8;
-    // 0x19..0x1B auto-run address = 0
+
+    if spec.file_type == FileType::Machine {
+        h[0x19] = (spec.run_addr >> 8) as u8;
+        h[0x1A] = (spec.run_addr & 0xFF) as u8;
+    }
     h
 }
 
-fn build_pc1600(payload_len: usize) -> Vec<u8> {
+fn build_pc1600(spec: BuildHeader) -> Vec<u8> {
     let mut h = vec![0u8; PC1600_LEN];
     h[0..4].copy_from_slice(&[0xFF, 0x10, 0x00, 0x00]);
-    h[4] = 0x21; // type = tokenized BASIC
+    h[4] = match spec.file_type {
+        FileType::Basic => 0x21,
+        FileType::Machine => 0x10,
+    };
 
     // 0x05..0x08 data length, little-endian 3 bytes, exact payload length
-    let dl = payload_len as u32;
+    let dl = spec.payload_len as u32;
     h[5] = (dl & 0xFF) as u8;
     h[6] = ((dl >> 8) & 0xFF) as u8;
     h[7] = ((dl >> 16) & 0xFF) as u8;
-    // 0x08..0x0B load address = 0, 0x0B..0x0E auto-run = 0
+
+    if spec.file_type == FileType::Machine {
+        let sa = spec.start_addr;
+        h[8] = (sa & 0xFF) as u8;
+        h[9] = ((sa >> 8) & 0xFF) as u8;
+        h[10] = ((sa >> 16) & 0xFF) as u8;
+
+        let ra = spec.run_addr;
+        h[11] = (ra & 0xFF) as u8;
+        h[12] = ((ra >> 8) & 0xFF) as u8;
+        h[13] = ((ra >> 16) & 0xFF) as u8;
+    }
 
     // 0x0E..0x10 end-of-header marker. Confirmed against a real PC-1600 capture
     // (ff 10 00 00 21 ... 00 0f) and matches current Java `Pc1600Header.getHeader()`,
@@ -103,6 +295,11 @@ mod tests {
         assert_eq!(&h[0x17..0x19], &[0x02, 0x49]); // 585 BE
         let p = find(&h).unwrap();
         assert_eq!(p.device, Device::Pc1500);
+        assert_eq!(p.file_type, FileType::Basic);
+        assert_eq!(p.length, 586);
+        assert_eq!(p.start_addr, 0);
+        assert_eq!(p.run_addr, 0);
+        assert_eq!(p.filename.as_deref(), Some("DEPRECIATION"));
         assert_eq!(p.payload_start(), 27);
     }
 
@@ -115,7 +312,45 @@ mod tests {
         assert_eq!(&h[14..16], &[0x00, 0x0F]);
         let p = find(&h).unwrap();
         assert_eq!(p.device, Device::Pc1600);
+        assert_eq!(p.file_type, FileType::Basic);
+        assert_eq!(p.length, 586);
+        assert_eq!(p.filename, None);
         assert_eq!(p.payload_start(), 16);
+    }
+
+    #[test]
+    fn ce158_machine_roundtrip() {
+        let h = build_header(BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Machine,
+            name: Some("prog"),
+            payload_len: 100,
+            start_addr: 0x38C5,
+            run_addr: 0xFFFF,
+        });
+        let p = find(&h).unwrap();
+        assert_eq!(p.file_type, FileType::Machine);
+        assert_eq!(p.length, 100);
+        assert_eq!(p.start_addr, 0x38C5);
+        assert_eq!(p.run_addr, 0xFFFF);
+        assert_eq!(p.filename.as_deref(), Some("PROG"));
+    }
+
+    #[test]
+    fn pc1600_machine_roundtrip() {
+        let h = build_header(BuildHeader {
+            device: Device::Pc1600,
+            file_type: FileType::Machine,
+            name: None,
+            payload_len: 4096,
+            start_addr: 0x123456,
+            run_addr: 0xABCDEF & 0xFFFFFF,
+        });
+        let p = find(&h).unwrap();
+        assert_eq!(p.file_type, FileType::Machine);
+        assert_eq!(p.length, 4096);
+        assert_eq!(p.start_addr, 0x123456);
+        assert_eq!(p.run_addr, 0xABCDEF);
     }
 
     #[test]
@@ -123,5 +358,39 @@ mod tests {
         let mut buf = vec![0x00, 0x00, 0x00];
         buf.extend(build(Device::Pc1500, Some("x"), 10));
         assert_eq!(find(&buf).unwrap().offset, 3);
+    }
+
+    #[test]
+    fn find_rejects_unsupported_ce158_type() {
+        let mut h = build(Device::Pc1500, Some("x"), 10);
+        h[1] = b'A'; // Reserve Area type char -- out of scope
+        assert_eq!(find(&h), None);
+        h[1] = b'H'; // Variables type char -- out of scope
+        assert_eq!(find(&h), None);
+    }
+
+    #[test]
+    fn expected_total_bytes_stages() {
+        // No magic at all yet.
+        assert_eq!(expected_total_bytes(b"not a header"), None);
+
+        let full = build(Device::Pc1500, Some("x"), 10);
+        // Magic present but header incomplete.
+        assert_eq!(expected_total_bytes(&full[..10]), None);
+
+        // Full header, no payload yet -- still resolvable (length is known).
+        assert_eq!(expected_total_bytes(&full), Some(27 + 10));
+
+        // Full header + full payload.
+        let mut with_payload = full.clone();
+        with_payload.extend(std::iter::repeat_n(0u8, 10));
+        assert_eq!(expected_total_bytes(&with_payload), Some(27 + 10));
+    }
+
+    #[test]
+    fn expected_total_bytes_unresolvable_for_unsupported_type() {
+        let mut h = build(Device::Pc1500, Some("x"), 10);
+        h[1] = b'H'; // Variables -- length field would be meaningless anyway
+        assert_eq!(expected_total_bytes(&h), None);
     }
 }

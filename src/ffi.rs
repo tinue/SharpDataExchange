@@ -80,7 +80,10 @@ impl From<Content> for SdeContent {
             Content::AsciiBasic => SdeContent::AsciiBasic,
             Content::Ce158Basic => SdeContent::Ce158Basic,
             Content::Pc1600Basic => SdeContent::Pc1600Basic,
-            Content::Unknown => SdeContent::Unknown,
+            // Machine language is outside the C ABI's scope (tokenize/de-tokenize
+            // BASIC only); matches this enum's pre-existing behavior, which already
+            // reported a machine-language header as Unknown.
+            Content::Ce158Machine | Content::Pc1600Machine | Content::Unknown => SdeContent::Unknown,
         }
     }
 }
