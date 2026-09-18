@@ -11,6 +11,27 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-18
+
+### Added
+
+- `sde get` / `sde put`: Reserve Area (SDAR ASCII form, key-assignment layers)
+  and Variables (SDAV ASCII form) transfer support for PC-1500/PC-1500A.
+  Both are get/put-only and PC-1500-only — `convert` stays BASIC-only and the
+  C ABI keeps collapsing them to `Unknown`. Adds a PC-1500 8-byte BCD numeric
+  codec (`src/bcd.rs`) to encode/decode Variables' numeric records.
+- `install.sh`: builds `sde` in release mode and installs it to
+  `~/Applications` on macOS.
+
+### Fixed
+
+- Windows release archives: `sharpdx.lib` is now shipped alongside any
+  transitively-linked import lib that isn't a standard Windows SDK/CRT lib
+  (e.g. an older `windows-sys`'s classic import lib, pulled in by a
+  dependency's Windows backend). Without it, a downstream consumer linking
+  the raw static lib directly hit "cannot open input file" for a name
+  `native-static-libs` listed but never supplied.
+
 ## [0.1.5] - 2026-09-18
 
 ### Added
@@ -157,7 +178,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.2...v0.1.3

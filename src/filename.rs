@@ -5,11 +5,14 @@ use std::path::Path;
 use crate::header::FileType;
 
 /// Extension appended when an output filename (from the CLI or a header) has none:
-/// `.bas` for BASIC, `.bin` for machine language.
+/// `.bas` for BASIC, `.bin` for machine language, `.sdar` for Reserve Area, `.sdav`
+/// for Variables.
 pub fn ext_for(file_type: FileType) -> &'static str {
     match file_type {
         FileType::Basic => "bas",
         FileType::Machine => "bin",
+        FileType::Reserve => "sdar",
+        FileType::Variables => "sdav",
     }
 }
 
@@ -46,6 +49,8 @@ mod tests {
     fn ext_for_types() {
         assert_eq!(ext_for(FileType::Basic), "bas");
         assert_eq!(ext_for(FileType::Machine), "bin");
+        assert_eq!(ext_for(FileType::Reserve), "sdar");
+        assert_eq!(ext_for(FileType::Variables), "sdav");
     }
 
     #[test]

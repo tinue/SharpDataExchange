@@ -85,6 +85,55 @@ case "$MATRIX_NAME" in
       | tr -d '\r' | xargs > "$stage/lib/native-libs-windows.txt"
     rm -f "$stage/lib/.native-libs-raw.txt"
     echo "native-libs-windows.txt: $(cat "$stage/lib/native-libs-windows.txt")"
+
+    # Most of those tokens (kernel32.lib, ws2_32.lib, ...) are Windows SDK
+    # / MSVC-CRT libs that live on every MSVC linker's default search path
+    # -- nothing to ship. But a transitive dependency on an *older*
+    # windows-sys (e.g. pulled in by serialport's Windows backend, while
+    # the rest of the tree has moved on to windows-sys's newer raw-dylib
+    # scheme that needs no import lib at all) still links the classic way,
+    # against a versioned import lib like `windows.0.52.0.lib` that only
+    # exists inside that crate's own vendored `lib/` folder -- cargo finds
+    # it via a build-script search path invisible to a downstream, non-
+    # cargo consumer. Without shipping the actual file, Calc-U-1600 (or
+    # anyone else linking the raw sharpdx.lib) hits "cannot open input
+    # file" for a name native-static-libs told them to link but never
+    # supplied. Locate and vendor any such non-system .lib alongside
+    # sharpdx.lib so a consumer just needs this directory on its link
+    # path -- durable against whichever crate needs it next, not a
+    # one-off fix for windows.0.52.0.lib specifically.
+    known_system_libs="kernel32.lib user32.lib ntdll.lib ws2_32.lib userenv.lib dbghelp.lib advapi32.lib bcrypt.lib synchronization.lib gdi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib winspool.lib shlwapi.lib msvcrt.lib"
+    # registry/src/<index>/<crate>-<version>/lib/<name>.lib -- 4 levels
+    # below registry/src.
+    cargo_registry_src="${CARGO_HOME:-$HOME/.cargo}/registry/src"
+    # e.g. "x86_64-pc-windows-msvc" -> "x86_64" -- the found candidates are
+    # shared across arch-specific sibling crates (windows_x86_64_msvc,
+    # windows_aarch64_msvc, ...) with the same file basename but different
+    # (arch-specific) contents, so pick the one matching this build.
+    target_arch="${primary%%-*}"
+    for tok in $(cat "$stage/lib/native-libs-windows.txt"); do
+      case "$tok" in
+        /*) continue ;;  # an MSVC flag like /defaultlib:msvcrt, not a lib name
+      esac
+      case " $known_system_libs " in
+        *" $tok "*) continue ;;
+      esac
+      # `|| true` on both: under `set -eo pipefail`, a `find` with nothing to
+      # report (missing dir, no match) or a `grep` that matches nothing exits
+      # non-zero, which pipefail surfaces as the pipeline's status and would
+      # otherwise abort the script right here -- defeating the not-found
+      # fallback/warning below that this is meant to reach.
+      found=$( (find "$cargo_registry_src" -maxdepth 4 -iname "$tok" 2>/dev/null | grep -F "$target_arch" | head -n1) || true)
+      if [ -z "$found" ]; then
+        found=$( (find "$cargo_registry_src" -maxdepth 4 -iname "$tok" 2>/dev/null | head -n1) || true)
+      fi
+      if [ -n "$found" ]; then
+        cp "$found" "$stage/lib/$tok"
+        echo "package.sh: vendored crate-provided import lib $tok (from $found)"
+      else
+        echo "package.sh: WARNING: native-static-libs references '$tok', which isn't a known system lib and wasn't found in the cargo registry cache -- a downstream consumer's link may fail" >&2
+      fi
+    done
     ;;
 
   *)

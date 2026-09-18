@@ -36,7 +36,11 @@ pub fn run_convert(
     let (target_ext, tokenizing) = match content {
         Content::AsciiBasic => (TOKENIZED_EXT, true),
         Content::Ce158Basic | Content::Pc1600Basic => (ASCII_EXT, false),
-        Content::Ce158Machine | Content::Pc1600Machine | Content::Unknown => bail!(
+        Content::Ce158Machine
+        | Content::Pc1600Machine
+        | Content::Ce158Reserve
+        | Content::Ce158Variables
+        | Content::Unknown => bail!(
             "convert only handles BASIC; got {}. A tokenized file must include a CE-158 or PC-1600 header.",
             content.describe()
         ),

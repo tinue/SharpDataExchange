@@ -104,7 +104,48 @@ pub fn build_put_bytes(
         return Ok((outcome.bytes, built_header.header_len));
     }
 
-    // No header, not ASCII BASIC -- a machine-language candidate.
+    if !forced_machine && content == Content::Ce158Reserve {
+        let text = String::from_utf8_lossy(raw);
+        let layout = crate::reserve::from_ascii(&text)?;
+        let reg = crate::registry::Registry::for_device(device.to_registry_device());
+        let payload = crate::reserve::encode_payload(&layout, reg)?;
+        let name = layout.filename.clone().unwrap_or_else(|| filename::synth_basename(&opts.input_file));
+        let built = header::build_header(header::BuildHeader {
+            device: device.to_registry_device(),
+            file_type: FileType::Reserve,
+            name: Some(&name),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let header_len = built.len();
+        let mut bytes = built;
+        bytes.extend_from_slice(&payload);
+        return Ok((bytes, header_len));
+    }
+
+    if !forced_machine && content == Content::Ce158Variables {
+        let text = String::from_utf8_lossy(raw);
+        let file = crate::variables::from_ascii(&text)?;
+        let payload = crate::variables::encode_payload(&file.values)?;
+        let name = file.filename.clone().unwrap_or_else(|| filename::synth_basename(&opts.input_file));
+        // build_header always writes the Variables wire length as 0 regardless of
+        // payload_len, matching the device's own wire behavior for this type.
+        let built = header::build_header(header::BuildHeader {
+            device: device.to_registry_device(),
+            file_type: FileType::Variables,
+            name: Some(&name),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let header_len = built.len();
+        let mut bytes = built;
+        bytes.extend_from_slice(&payload);
+        return Ok((bytes, header_len));
+    }
+
+    // No header, not ASCII BASIC/Reserve/Variables -- a machine-language candidate.
     if forced_machine {
         let start = opts.start_address.expect("forced_machine implies Some");
         let run = opts.run_address.unwrap_or(0xFFFF);
@@ -154,6 +195,9 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 
     // §5's last bullet: an explicit `--format ascii` on headerless ASCII BASIC input
     // sends it line-by-line, untokenized, instead of the normal tokenized-binary path.
+    // Reserve Area and Variables input has no equivalent "send as literal text" mode
+    // (the device has no matching load command for either), so they always go through
+    // `build_put_bytes`'s tokenizing path below regardless of `--format`.
     if header.is_none() && content == Content::AsciiBasic && opts.format == Some(Format::Ascii) {
         return run_put_ascii_lines(&raw, opts, config, device);
     }
@@ -175,6 +219,10 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
                         w = w
                     ),
                 );
+            } else if h.file_type == FileType::Reserve {
+                crate::verbosity::narrate(opts.verbose, "Tokenized Reserve Area input before sending");
+            } else if h.file_type == FileType::Variables {
+                crate::verbosity::narrate(opts.verbose, "Tokenized Variables input before sending");
             } else {
                 crate::verbosity::narrate(opts.verbose, "Tokenized ASCII BASIC input before sending");
             }
@@ -333,6 +381,61 @@ mod tests {
         assert_eq!(header_len, 27);
         let h = header::find(&bytes).unwrap();
         assert_eq!(h.file_type, FileType::Basic);
+    }
+
+    #[test]
+    fn build_put_bytes_tokenizes_reserve_ascii() {
+        let raw = format!("{}1.0 pc1500\n\n[layer 1]\nlabel: MENU\nkey 1: PRINT\n", crate::reserve::MARKER);
+        let (bytes, header_len) =
+            build_put_bytes(raw.as_bytes(), None, Content::Ce158Reserve, &opts("prog.sdar"), PocketDevice::Pc1500)
+                .unwrap();
+        let h = header::find(&bytes).unwrap();
+        assert_eq!(h.file_type, FileType::Reserve);
+        assert_eq!(header_len, h.header_len);
+        let reg = crate::registry::Registry::for_device(RegDevice::Pc1500);
+        let layout = crate::reserve::decode_payload(&bytes[h.payload_start()..], reg).unwrap();
+        assert_eq!(layout.labels[0], "MENU");
+        assert_eq!(layout.keys[0][0], "PRINT");
+    }
+
+    #[test]
+    fn build_put_bytes_tokenizes_variables_ascii() {
+        let raw = format!("{}1.0 pc1500\n; Count: 1\n42\n", crate::variables::MARKER);
+        let (bytes, header_len) = build_put_bytes(
+            raw.as_bytes(),
+            None,
+            Content::Ce158Variables,
+            &opts("prog.sdav"),
+            PocketDevice::Pc1500,
+        )
+        .unwrap();
+        let h = header::find(&bytes).unwrap();
+        assert_eq!(h.file_type, FileType::Variables);
+        assert_eq!(header_len, h.header_len);
+        let file = crate::variables::decode_payload(&bytes[h.payload_start()..]).unwrap();
+        assert_eq!(file.values, vec![crate::variables::VarValue::NumericScalar("42".to_string())]);
+    }
+
+    #[test]
+    fn build_put_bytes_sends_existing_reserve_header_as_is() {
+        let reg = crate::registry::Registry::for_device(RegDevice::Pc1500);
+        let layout = crate::reserve::ReserveLayout::default();
+        let payload = crate::reserve::encode_payload(&layout, reg).unwrap();
+        let header_bytes = header::build_header(header::BuildHeader {
+            device: RegDevice::Pc1500,
+            file_type: FileType::Reserve,
+            name: Some("x"),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let mut raw = header_bytes;
+        raw.extend_from_slice(&payload);
+        let h = header::find(&raw).unwrap();
+        let (bytes, header_len) =
+            build_put_bytes(&raw, Some(&h), Content::Ce158Reserve, &opts("x.sdar"), PocketDevice::Pc1500).unwrap();
+        assert_eq!(bytes, raw);
+        assert_eq!(header_len, h.header_len);
     }
 
     #[test]

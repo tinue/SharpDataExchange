@@ -146,6 +146,23 @@ fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
             crate::verbosity::narrate(opts.verbose, "Cleaning up ASCII BASIC listing");
             crate::text::decode_bas_listing(raw).into_bytes()
         }
+        (Format::Ascii, Some(h), _) if h.file_type == FileType::Reserve => {
+            crate::verbosity::narrate(opts.verbose, "De-tokenizing Reserve Area payload");
+            let payload = &raw[h.payload_start()..h.payload_start() + h.length];
+            let reg = Registry::for_device(h.device);
+            let mut layout = crate::reserve::decode_payload(payload, reg)?;
+            layout.filename = h.filename.clone();
+            crate::reserve::to_ascii(&layout).into_bytes()
+        }
+        (Format::Ascii, Some(h), _) if h.file_type == FileType::Variables => {
+            crate::verbosity::narrate(opts.verbose, "De-tokenizing Variables payload");
+            // The header's length field is not meaningful for Variables (see
+            // `ParsedHeader::length`); parse to end of the received buffer instead.
+            let payload = &raw[h.payload_start()..];
+            let mut file = crate::variables::decode_payload(payload)?;
+            file.filename = h.filename.clone();
+            crate::variables::to_ascii(&file).into_bytes()
+        }
         (Format::Ascii, _, _) => {
             bail!("cannot produce an ASCII listing from this content ({})", content.describe());
         }
@@ -303,6 +320,77 @@ mod tests {
         o.output_file = Some("out.bin".to_string());
         let outcome = process_raw(&data, &o).unwrap();
         assert_eq!(outcome.bytes, vec![0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn reserve_ascii_get() {
+        let reg = crate::registry::Registry::for_device(RegDevice::Pc1500);
+        let mut layout = crate::reserve::ReserveLayout::default();
+        layout.labels[0] = "MENU".to_string();
+        layout.keys[0][0] = "PRINT".to_string();
+        let payload = crate::reserve::encode_payload(&layout, reg).unwrap();
+        let header_bytes = header::build_header(header::BuildHeader {
+            device: RegDevice::Pc1500,
+            file_type: FileType::Reserve,
+            name: Some("RES"),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let mut data = header_bytes;
+        data.extend_from_slice(&payload);
+        let outcome = process_normal(&data, &opts()).unwrap();
+        let text = String::from_utf8(outcome.bytes).unwrap();
+        assert!(text.starts_with(crate::reserve::MARKER));
+        assert!(text.contains("; Filename: RES"));
+        assert!(text.contains("key 1: PRINT"));
+        assert!(outcome.path.ends_with(".sdar"));
+    }
+
+    #[test]
+    fn variables_ascii_get() {
+        let values = vec![crate::variables::VarValue::NumericScalar("42".to_string())];
+        let payload = crate::variables::encode_payload(&values).unwrap();
+        // build_header always writes wire length 0 for Variables; get_cmd must still
+        // decode the full payload by reading to end of buffer.
+        let header_bytes = header::build_header(header::BuildHeader {
+            device: RegDevice::Pc1500,
+            file_type: FileType::Variables,
+            name: Some("VARS"),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let mut data = header_bytes;
+        data.extend_from_slice(&payload);
+        let outcome = process_normal(&data, &opts()).unwrap();
+        let text = String::from_utf8(outcome.bytes).unwrap();
+        assert!(text.starts_with(crate::variables::MARKER));
+        assert!(text.contains("; Count: 1"));
+        assert!(text.contains("42"));
+        assert!(outcome.path.ends_with(".sdav"));
+    }
+
+    #[test]
+    fn reserve_binary_get_roundtrips_with_skip_header() {
+        let reg = crate::registry::Registry::for_device(RegDevice::Pc1500);
+        let layout = crate::reserve::ReserveLayout::default();
+        let payload = crate::reserve::encode_payload(&layout, reg).unwrap();
+        let header_bytes = header::build_header(header::BuildHeader {
+            device: RegDevice::Pc1500,
+            file_type: FileType::Reserve,
+            name: Some("RES"),
+            payload_len: payload.len(),
+            start_addr: 0,
+            run_addr: 0,
+        });
+        let mut data = header_bytes;
+        data.extend_from_slice(&payload);
+        let mut o = opts();
+        o.format = Format::Binary;
+        o.skip_header = true;
+        let outcome = process_normal(&data, &o).unwrap();
+        assert_eq!(outcome.bytes, payload.to_vec());
     }
 
     #[test]

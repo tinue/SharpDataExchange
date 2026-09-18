@@ -217,11 +217,11 @@ run `sde put`. The device does not buffer outgoing data, so the ordering matters
 `.bas`, `.bin`, or any other extension can be used freely for `get`/`put`
 input/output files.
 
-### Scope: BASIC and machine language only
+### Scope: BASIC, machine language, Reserve Area, and Variables
 
-`get`/`put` handle **BASIC programs and machine-language (assembly) programs**.
-Reserve Area and Variables transfer are not implemented here — see
-[Scope / Known Limitations](#scope--known-limitations).
+`get`/`put` handle **BASIC programs, machine-language (assembly) programs, Reserve
+Area, and Variables**. Reserve Area and Variables are PC-1500/1500A-only and are not
+reachable through `convert` — see [Data Formats](#data-formats) for their layout.
 
 ### Verbosity: `-v` / `-q` / config default
 
@@ -516,11 +516,77 @@ included by default, so the file can be sent straight back with `put`
 unmodified). Machine language is *always* saved as raw binary regardless of
 `--format`, since it can't be de-tokenized to a listing.
 
-### Reserve Area / Variables — not implemented
+### Reserve Area (SDAR)
 
-Reserve Area (`CSAVEr`/`CLOADr`, SDAR format) and Variables (SDAV format) transfer
-on the PC-1500/1500A are not implemented by `sde` — see
-[Scope / Known Limitations](#scope--known-limitations).
+PC-1500/1500A only (`CSAVEr`/`CLOADr`); not reachable through `convert`, only
+`get`/`put`. The binary payload behind a CE-158 header is a fixed 188 bytes: three
+26-byte key-layer labels, followed by a 110-byte key-content pool. The pool is a
+sequence of `[key code][content bytes...]` entries terminated by `0x00`; each of the
+three layers has six keys, with key codes `0x01`-`0x06` (layer 1), `0x11`-`0x16`
+(layer 2), and `0x09`-`0x0E` (layer 3). A key with no assigned content has no entry.
+Content bytes mix literal characters with 2-byte BASIC keyword tokens.
+
+`get --format ascii` (the default) renders this as SDAR text:
+
+```
+; sde-reserve:1.0 pc1500
+; Filename: MYAPP
+
+[layer 1]
+label: MENU
+key 1: PRINT
+key 2:
+key 3:
+key 4:
+key 5:
+key 6:
+
+[layer 2]
+...
+[layer 3]
+...
+```
+
+All three `[layer N]` sections and all six `key N:` lines are always present (content
+may be empty). `put` accepts this text back and tokenizes it, erroring if the encoded
+pool would exceed the 110-byte hardware limit. `.sdar` is the extension for this ASCII
+form.
+
+### Variables (SDAV)
+
+PC-1500/1500A only; not reachable through `convert`, only `get`/`put`. The binary
+payload behind a CE-158 header is a sequence of records with no fixed total length —
+each record is a `0x00` separator, a 4-byte prefix (record length, array dimension,
+reserved, type), then data. A `0x88` type byte marks numeric data (8-byte
+PC-1500-hardware BCD floats — see `src/bcd.rs`'s doc comment for the exact byte
+layout); any other type byte is a string element's length in bytes. A `0` dimension
+byte marks a scalar; a nonzero value `N` marks an array of `N + 1` elements (a
+`DIM`'d variable).
+
+`get --format ascii` (the default) renders this as SDAV text:
+
+```
+; sde-variables:1.0 pc1500
+; Count: 3
+; Filename: MYAPP
+42
+"Hi there!"
+DIM (2)
+1
+2
+3
+```
+
+`; Count:` is the number of top-level records (one per scalar or whole array); `put`
+recomputes it from the parsed text and errors on a mismatch. A numeric array is a
+`DIM (<dimMax>)` header followed by `dimMax + 1` decimal lines; a string array is a
+`DIM $(<dimMax>)*<maxLen>` header followed by `dimMax + 1` double-quoted lines
+(`\`, `"`, and non-printable bytes escaped as `\\`, `\"`, `\xHH`). `.sdav` is the
+extension for this ASCII form.
+
+Whether the PC-1600 protocol has equivalent header types for either format is
+unresearched — `sde` recognizes Reserve Area/Variables only behind a CE-158 (PC-1500)
+header.
 
 ---
 
@@ -653,27 +719,30 @@ RCVSTAT "COM1:",24
 ## Scope / Known Limitations
 
 Implemented: `convert` (offline tokenize/de-tokenize), `get`/`put` (serial
-transfer) for **BASIC and machine-language programs only**, and `config`
+transfer) for **BASIC programs, machine-language programs, Reserve Area, and
+Variables** (the latter two PC-1500/1500A-only, `get`/`put`-only), and `config`
 (per-user defaults).
 
-Not implemented:
+Won't implement (permanent decisions, not just currently-undone work):
 
-- **Reserve Area** (`CSAVEr`/`CLOADr`, SDAR format) and **Variables** (SDAV
-  format) transfer — PC-1500/1500A-only features, not implemented here.
-- **`terminal`** mode (interactive passive serial session) — unrelated to
-  `get`/`put`, not ported.
-- **`--add-utils`** (serial utility BASIC sub-program injection on `put`) — not
-  ported.
-- **`convert --dry-run`** — not implemented (`get`/`put` support `--dry-run`;
-  `convert` does not).
-- Whether the PC-1600 protocol has header types for Reserve Area/Variables at
-  all is **unresearched** — `sde` simply doesn't recognize any header type byte
-  beyond BASIC/machine language, on either device family.
+- **`terminal`** mode (interactive passive serial session) — the serial link isn't
+  full-duplex-capable (only input or output can be redirected at a time), so an
+  interactive terminal has little value here.
+- **`--add-utils`** (serial utility BASIC sub-program injection on `put`).
+- Additional `--dry-run` support beyond what `get`/`put` already have (`convert
+  --dry-run` stays unimplemented).
+- Windows serial-port auto-detection — Windows machines routinely enumerate many COM
+  ports (Bluetooth, virtual devices, etc.), making auto-detection unreliable; always
+  pass `--port` there.
+
+Not implemented (may change):
+
+- Whether the PC-1600 protocol has header types equivalent to Reserve Area/Variables
+  at all is **unresearched** — `sde` does not recognize any PC-1600 header type byte
+  beyond BASIC/machine language.
 - PC-1600-only BASIC token values are limited to what the Java
   `Pc1600Keywords.java` lists (no PC-1600 ROM source exists); unknown `>= 0xE0`
   byte pairs pass through opaquely during `convert`.
-- Windows serial-port auto-detection is not implemented; always pass `--port`
-  there.
 
 The one known `convert` fixture difference is the CE-158 header *filename* field
 casing — `sde` upper-cases it, while a historical fixture stored it lower-case; the

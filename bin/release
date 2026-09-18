@@ -437,6 +437,20 @@ if [ -z "$UPSTREAM" ]; then
     exit 1
 fi
 
+# Checked before finalize_changelog_date (which commits + pushes a date
+# stamp) so an empty/missing section aborts before mutating or pushing
+# anything -- previously this ran after finalize_changelog_date, so a
+# WIP section with no entries still got dated, committed, and pushed,
+# and only then did the release abort with "add one before releasing".
+if [ ! -f "$CHANGELOG" ]; then
+    echo "Error: $CHANGELOG not found."
+    exit 1
+fi
+if [ -z "$(changelog_notes)" ]; then
+    echo "Error: no '## [$VERSION]' entry in $CHANGELOG. Add one before releasing."
+    exit 1
+fi
+
 finalize_changelog_date
 
 if [ "$(git rev-parse HEAD)" != "$(git rev-parse "$UPSTREAM")" ]; then
@@ -454,15 +468,6 @@ MAIN_SHA=$(git rev-parse "origin/$MAIN_BRANCH")
 if [ "$(git merge-base HEAD "origin/$MAIN_BRANCH")" != "$MAIN_SHA" ]; then
     echo "Error: '$CURRENT_BRANCH' cannot be fast-forward merged into $MAIN_BRANCH."
     echo "  Merge or rebase onto $MAIN_BRANCH first:  git merge origin/$MAIN_BRANCH"
-    exit 1
-fi
-
-if [ ! -f "$CHANGELOG" ]; then
-    echo "Error: $CHANGELOG not found."
-    exit 1
-fi
-if [ -z "$(changelog_notes)" ]; then
-    echo "Error: no '## [$VERSION]' entry in $CHANGELOG. Add one before releasing."
     exit 1
 fi
 

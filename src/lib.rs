@@ -4,14 +4,17 @@
 //! (`convert`, `scanner`, `detokenize`, `detect`, `header`) has no file I/O and is shared
 //! by the CLI (`src/main.rs`) and the C ABI (`ffi`).
 
+pub mod bcd;
 pub mod cp437;
 pub mod detect;
 pub mod detokenize;
 pub mod header;
 pub mod keywords;
 pub mod registry;
+pub mod reserve;
 pub mod scanner;
 pub mod text;
+pub mod variables;
 
 mod abbrev;
 pub mod convert;
