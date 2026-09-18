@@ -37,15 +37,14 @@ const MAX_CONTENT: usize = 254;
 ///
 /// A device saving multiple GOSUB "LABEL" program segments together emits, on the
 /// wire, a 3-byte sentinel: `0xFF` (end of this segment) followed by two `0x00`
-/// pacing bytes the sender uses to know when to insert an extra pause (see the
-/// `sender` module's `SEGMENT_MARKER`/`SEGMENT_PAUSE`). But the ROM's own serial
-/// *receiver* only stores that leading `0xFF` into the program area -- the two
-/// pacing bytes never land in RAM (confirmed against a real PC-1600's `LOAD
-/// "COM1:"` pointers: `BASPRG_END` comes out exactly 2 bytes short of the 3-byte
-/// form, once per marker). So a caller building bytes to go out over a real or
-/// emulated serial line wants [`SegmentMarker::Wire`]; a caller building bytes to
-/// poke directly into RAM (bypassing the serial protocol entirely, e.g. a fast
-/// preset loader) wants [`SegmentMarker::Memory`], which emits just the `0xFF`.
+/// bytes. But the ROM's own serial *receiver* only stores that leading `0xFF` into
+/// the program area -- the two trailing bytes never land in RAM (confirmed against
+/// a real PC-1600's `LOAD "COM1:"` pointers: `BASPRG_END` comes out exactly 2 bytes
+/// short of the 3-byte form, once per marker). So a caller building bytes to go out
+/// over a real or emulated serial line wants [`SegmentMarker::Wire`]; a caller
+/// building bytes to poke directly into RAM (bypassing the serial protocol
+/// entirely, e.g. a fast preset loader) wants [`SegmentMarker::Memory`], which
+/// emits just the `0xFF`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentMarker {
     /// `0xFF 0x00 0x00` -- what actually goes out over COM1:.

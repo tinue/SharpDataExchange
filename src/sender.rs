@@ -11,8 +11,6 @@ const HEADER_PAUSE: Duration = Duration::from_millis(300);
 const BYTE_DELAY: Duration = Duration::from_millis(1);
 const TAIL_PAUSE: Duration = Duration::from_millis(500);
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(2000);
-const SEGMENT_PAUSE: Duration = Duration::from_millis(300);
-const SEGMENT_MARKER: [u8; 3] = [0xFF, 0x00, 0x00];
 
 /// Send a fully-formed data block (`header_len` leading bytes are the header, if any;
 /// `header_len == 0` for a headerless send, e.g. `--raw`). Paced devices (PC-1500
@@ -32,7 +30,7 @@ pub fn send_data<T: Transport>(
         transport.write_all(header)?;
         transport.sleep(HEADER_PAUSE);
 
-        write_paced_payload(transport, device, payload)?;
+        write_byte_by_byte(transport, payload)?;
 
         transport.drain(DRAIN_TIMEOUT);
         transport.sleep(TAIL_PAUSE);
@@ -41,34 +39,6 @@ pub fn send_data<T: Transport>(
         transport.drain(DRAIN_TIMEOUT);
     }
     Ok(())
-}
-
-/// Send a paced payload, pausing an extra [`SEGMENT_PAUSE`] after every
-/// `0xFF 0x00 0x00` segment-boundary marker found in it. Only a PC-1600 tokenized-BASIC
-/// payload can contain this marker; elsewhere it is sent as an ordinary run of paced
-/// bytes.
-fn write_paced_payload<T: Transport>(
-    transport: &mut T,
-    device: PocketDevice,
-    payload: &[u8],
-) -> Result<()> {
-    if !device.is_pc1600_family() {
-        return write_byte_by_byte(transport, payload);
-    }
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i + SEGMENT_MARKER.len() <= payload.len() {
-        if payload[i..i + SEGMENT_MARKER.len()] == SEGMENT_MARKER {
-            let end = i + SEGMENT_MARKER.len();
-            write_byte_by_byte(transport, &payload[start..end])?;
-            transport.sleep(SEGMENT_PAUSE);
-            start = end;
-            i = end;
-        } else {
-            i += 1;
-        }
-    }
-    write_byte_by_byte(transport, &payload[start..])
 }
 
 fn write_byte_by_byte<T: Transport>(transport: &mut T, bytes: &[u8]) -> Result<()> {
@@ -136,25 +106,23 @@ mod tests {
     }
 
     #[test]
-    fn pc1600emul_pauses_extra_after_segment_marker() {
+    fn pc1600emul_paces_byte_by_byte_with_no_segment_pause() {
         let mut t = FakeSerial::new();
-        // header_len=0 for simplicity; payload has one marker at index 2.
+        // header_len=0 for simplicity; payload contains what used to be a segment marker.
         let payload = [0x01u8, 0x02, 0xFF, 0x00, 0x00, 0x03];
         send_data(&mut t, PocketDevice::Pc1600Emul, 0, &payload).unwrap();
         assert_eq!(t.written, payload);
-        // header pause, then per-byte sleeps for [01,02,FF,00,00] with an extra
-        // segment pause right after the marker completes, then one more byte-sleep.
+        // header pause, then one BYTE_DELAY sleep per payload byte, no extra pauses.
         assert_eq!(
             t.sleeps,
             vec![
                 HEADER_PAUSE,
-                BYTE_DELAY, // 0x01
-                BYTE_DELAY, // 0x02
-                BYTE_DELAY, // 0xFF
-                BYTE_DELAY, // 0x00
-                BYTE_DELAY, // 0x00 (marker complete)
-                SEGMENT_PAUSE,
-                BYTE_DELAY, // 0x03
+                BYTE_DELAY,
+                BYTE_DELAY,
+                BYTE_DELAY,
+                BYTE_DELAY,
+                BYTE_DELAY,
+                BYTE_DELAY,
                 TAIL_PAUSE,
             ]
         );
