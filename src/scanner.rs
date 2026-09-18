@@ -111,11 +111,15 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
     let mut content = Vec::with_capacity(bytes.len());
     let mut i = 0usize;
     let mut in_string = false;
-    // PC-1600 patches a constant GOTO/GOSUB/THEN/RESUME target into a compact binary
-    // form (0x1F [hi] [lo] 0x00) instead of plain ASCII digits; PC-1500 always uses
-    // ASCII digits. Confirmed against real memory dumps of both machines (RESUME via
-    // "10 RESUME 100" -> ... F2 8D 1F 00 64 00 0D). Set right after emitting one of
-    // those keywords; consumed (or dropped) by the very next token.
+    // PC-1600 patches a constant line-number target into a compact binary form
+    // (0x1F [hi] [lo] 0x00) instead of plain ASCII digits, right after GOTO/GOSUB/
+    // THEN/RESUME/RUN/RESTORE; PC-1500 always uses ASCII digits. Confirmed against
+    // real memory dumps of the PC-1600 for each of those keywords (e.g. RESUME via
+    // "10 RESUME 100" -> ... F2 8D 1F 00 64 00 0D). `ON x GOTO/GOSUB n` needs no
+    // separate handling: the target directly follows GOTO/GOSUB, already in this
+    // list, so it's covered the same way (confirmed: "10 ON A GOSUB 100" -> ...
+    // F1 9C 41 F1 94 1F 00 64 00 0D). Set right after emitting one of these
+    // keywords; consumed (or dropped) by the very next token.
     let use_binary_line_number_targets = reg.device() == Device::Pc1600;
     let mut expect_line_number_target = false;
 
@@ -189,7 +193,7 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
                     if kw.code == REM_CODE {
                         content.extend_from_slice(&bytes[i..]);
                         i = bytes.len();
-                    } else if matches!(kw.name, "GOTO" | "GOSUB" | "THEN" | "RESUME") {
+                    } else if matches!(kw.name, "GOTO" | "GOSUB" | "THEN" | "RESUME" | "RUN" | "RESTORE") {
                         expect_line_number_target = true;
                     }
                 }
@@ -284,11 +288,28 @@ mod tests {
     #[test]
     fn pc1600_binary_line_number_targets() {
         // Confirmed against real PC-1600 memory dumps: a constant GOTO/GOSUB/THEN/
-        // RESUME target is patched into 0x1F [hi] [lo] 0x00 instead of ASCII digits.
+        // RESUME/RUN/RESTORE target is patched into 0x1F [hi] [lo] 0x00 instead of
+        // ASCII digits.
         // "10 RESUME 100" -> 0A 07 F2 8D 1F 00 64 00 0D
         assert_eq!(
             tok1600("10 RESUME 100\n"),
             vec![0x00, 0x0A, 0x07, 0xF2, 0x8D, 0x1F, 0x00, 0x64, 0x00, 0x0D]
+        );
+        // "10 RUN 100" -> 0A 07 F1 A4 1F 00 64 00 0D
+        assert_eq!(
+            tok1600("10 RUN 100\n"),
+            vec![0x00, 0x0A, 0x07, 0xF1, 0xA4, 0x1F, 0x00, 0x64, 0x00, 0x0D]
+        );
+        // "10 RESTORE 100" -> 0A 07 F1 A7 1F 00 64 00 0D
+        assert_eq!(
+            tok1600("10 RESTORE 100\n"),
+            vec![0x00, 0x0A, 0x07, 0xF1, 0xA7, 0x1F, 0x00, 0x64, 0x00, 0x0D]
+        );
+        // "10 ON A GOSUB 100" -> 0A 0A F1 9C 41 F1 94 1F 00 64 00 0D -- ON itself
+        // needs no special-casing: the target follows GOSUB, already in the list.
+        assert_eq!(
+            tok1600("10 ON A GOSUB 100\n"),
+            vec![0x00, 0x0A, 0x0A, 0xF1, 0x9C, 0x41, 0xF1, 0x94, 0x1F, 0x00, 0x64, 0x00, 0x0D]
         );
         let has_binary_target = |bytes: &[u8]| bytes.windows(4).any(|w| w == [0x1F, 0x00, 0x64, 0x00]);
         assert!(has_binary_target(&tok1600("10 GOTO 100\n")));

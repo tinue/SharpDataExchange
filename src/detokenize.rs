@@ -81,9 +81,9 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
                 }
             } else if b1 == 0x1F && pos + 3 <= content_end && payload[pos + 3] == 0x00 {
                 // 0x1F [lineNum hi] [lineNum lo] 0x00: the compact binary line-number
-                // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN/RESUME
-                // target (confirmed against real PC-1600 memory dumps; the PC-1500
-                // always uses plain ASCII digits instead).
+                // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN/RESUME/
+                // RUN/RESTORE target (confirmed against real PC-1600 memory dumps; the
+                // PC-1500 always uses plain ASCII digits instead).
                 let target = u16::from_be_bytes([payload[pos + 1], payload[pos + 2]]);
                 s.push_str(&target.to_string());
                 pos += 4;
