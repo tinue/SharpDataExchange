@@ -15,13 +15,38 @@ GitHub release notes, so keep entries user-facing.
 
 ### Added
 
-- `sde_tokenize` (and `convert_with`/`scanner::tokenize`) take a `SdeSegmentMarker`
-  option controlling how a `#SEGMENT` line tokenizes: `Wire` (`0xFF 0x00 0x00`, what
-  `SAVE "COM1:"` actually transmits, the previous and default behavior) or `Memory`
-  (bare `0xFF`, what the ROM's serial receiver actually stores into the program
-  area). A caller poking tokenized bytes directly into RAM -- bypassing the serial
-  protocol entirely -- should use `Memory`, since including the two wire-only pacing
-  bytes made `BASPRG_END` come out 2 bytes too high per marker.
+- `sde get` / `sde put`: real serial transfer of BASIC and machine-language
+  programs to/from a real or emulated Sharp PC-1500 / PC-1500A / PC-1600, on top
+  of the existing offline `convert` verb. Supports all four transport targets
+  (`pc1500`/`pc1500a`/`pc1600`/`pc1600emul`), `--raw`, `--dry-run`, and
+  header auto-add/ambiguity handling. Reserve Area and Variables transfer remain
+  out of scope.
+- `sde config`: reads an optional `~/.sderc` (`key = value`) for two defaults --
+  the `pc1600emul` socket directory (fixed filename `calcu1600.serial`, default
+  `/tmp`) and default verbosity -- plus `-v`/`-q` CLI overrides shared by `get`
+  and `put`.
+- PC-1600 patches a constant `GOTO`/`GOSUB`/bare-`THEN` jump target into a
+  compact binary form (`0x1F [hi] [lo] 0x00`) instead of leaving it as ASCII
+  digits (PC-1500 always uses ASCII digits). Confirmed against real
+  PC-1500/PC-1600 memory dumps; `scanner::tokenize` reproduces this on PC-1600
+  only, `detokenize::detokenize` decodes it on both devices.
+- The device supports multiple `GOSUB "LABEL"`-addressable program segments per
+  save, separated on the wire by `0xFF 0x00 0x00`. Confirmed on real PC-1600
+  hardware. The reserved `#SEGMENT` marker line now round-trips this boundary in
+  both directions; `sde_tokenize` (and `convert_with`/`scanner::tokenize`) take
+  a `SdeSegmentMarker` option controlling how it tokenizes: `Wire`
+  (`0xFF 0x00 0x00`, what `SAVE "COM1:"` actually transmits, the previous and
+  default behavior) or `Memory` (bare `0xFF`, what the ROM's serial receiver
+  actually stores into the program area). A caller poking tokenized bytes
+  directly into RAM -- bypassing the serial protocol entirely -- should use
+  `Memory`, since including the two wire-only pacing bytes made `BASPRG_END`
+  come out 2 bytes too high per marker.
+
+### Fixed
+
+- `header::build_pc1600`'s end-of-header marker was `{0x00, 0xF0}`; a real
+  PC-1600 capture confirms it should be `{0x00, 0x0F}`. Fixed, with the
+  `depreciation-tokenized-pc1600header.bin` fixture regenerated to match.
 
 ## [0.1.4] - 2026-09-16
 
