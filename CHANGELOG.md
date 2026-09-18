@@ -11,6 +11,8 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.2.1] - WIP
+
 ## [0.2.0] - 2026-09-18
 
 ### Added
@@ -178,7 +180,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.3...v0.1.4
