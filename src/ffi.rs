@@ -15,6 +15,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use crate::detect::Content;
 use crate::detokenize::LineEnding;
 use crate::registry::Device;
+use crate::scanner::SegmentMarker;
 
 pub const SDE_OK: i32 = 0;
 pub const SDE_ERR: i32 = -1;
@@ -65,6 +66,29 @@ impl From<SdeLineEnding> for LineEnding {
     }
 }
 
+/// How a `#SEGMENT` marker line tokenizes (`sde_tokenize` only; a device saving
+/// multiple GOSUB "LABEL" program segments together). `Wire` is the 3-byte sequence
+/// `0xFF 0x00 0x00` actually sent over `SAVE "COM1:"`. `Memory` is the bare `0xFF`
+/// the ROM's own serial receiver actually stores into the program area -- use this
+/// when building bytes for a direct RAM poke rather than a real/emulated serial
+/// transfer (confirmed against a real PC-1600's `LOAD "COM1:"` pointers: BASPRG_END
+/// comes out exactly 2 bytes short of the `Wire` form, once per marker).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum SdeSegmentMarker {
+    Wire = 0,
+    Memory = 1,
+}
+
+impl From<SdeSegmentMarker> for SegmentMarker {
+    fn from(m: SdeSegmentMarker) -> Self {
+        match m {
+            SdeSegmentMarker::Wire => SegmentMarker::Wire,
+            SdeSegmentMarker::Memory => SegmentMarker::Memory,
+        }
+    }
+}
+
 impl From<SdeDevice> for Device {
     fn from(d: SdeDevice) -> Self {
         match d {
@@ -80,7 +104,10 @@ impl From<Content> for SdeContent {
             Content::AsciiBasic => SdeContent::AsciiBasic,
             Content::Ce158Basic => SdeContent::Ce158Basic,
             Content::Pc1600Basic => SdeContent::Pc1600Basic,
-            Content::Unknown => SdeContent::Unknown,
+            // Machine language is outside the C ABI's scope (tokenize/de-tokenize
+            // BASIC only); matches this enum's pre-existing behavior, which already
+            // reported a machine-language header as Unknown.
+            Content::Ce158Machine | Content::Pc1600Machine | Content::Unknown => SdeContent::Unknown,
         }
     }
 }
@@ -151,6 +178,19 @@ unsafe fn write_buf(bytes: Vec<u8>, out: *mut *mut u8, out_len: *mut usize) -> R
     Ok(())
 }
 
+unsafe fn finish_bytes(result: anyhow::Result<Vec<u8>>, out: *mut *mut u8, out_len: *mut usize) -> i32 {
+    match result {
+        Ok(bytes) => match write_buf(bytes, out, out_len) {
+            Ok(()) => SDE_OK,
+            Err(c) => c,
+        },
+        Err(e) => {
+            set_error(&e.to_string());
+            SDE_ERR
+        }
+    }
+}
+
 fn guard(f: impl FnOnce() -> i32) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(code) => code,
@@ -182,7 +222,9 @@ pub unsafe extern "C" fn sde_detect(
     })
 }
 
-/// ASCII BASIC bytes -> tokenized payload. `with_header != 0` prepends the serial header.
+/// ASCII BASIC bytes -> tokenized payload. `with_header != 0` prepends the serial
+/// header. `segment_marker` selects how a `#SEGMENT` line renders -- see
+/// [`SdeSegmentMarker`]; pass `SDE_SEGMENT_MARKER_WIRE` for the previous behavior.
 ///
 /// # Safety
 /// Pointer/length pairs must describe readable buffers; `name` is NULL or a C string;
@@ -191,6 +233,7 @@ pub unsafe extern "C" fn sde_detect(
 pub unsafe extern "C" fn sde_tokenize(
     device: SdeDevice,
     with_header: c_int,
+    segment_marker: SdeSegmentMarker,
     name: *const c_char,
     input: *const u8,
     in_len: usize,
@@ -201,11 +244,15 @@ pub unsafe extern "C" fn sde_tokenize(
         clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         let nm = opt_str(name);
-        match crate::convert::convert(data, device.into(), nm, with_header != 0) {
-            Ok(o) if matches!(o.content, Content::AsciiBasic) => match write_buf(o.bytes, out, out_len) {
-                Ok(()) => SDE_OK,
-                Err(c) => c,
-            },
+        match crate::convert::convert_with(
+            data,
+            device.into(),
+            nm,
+            with_header != 0,
+            LineEnding::Platform,
+            segment_marker.into(),
+        ) {
+            Ok(o) if matches!(o.content, Content::AsciiBasic) => finish_bytes(Ok(o.bytes), out, out_len),
             Ok(_) => {
                 set_error("input is not ASCII BASIC");
                 SDE_ERR
@@ -240,7 +287,8 @@ pub unsafe extern "C" fn sde_detokenize(
 
         let result = match crate::detect::detect(data) {
             Content::Ce158Basic | Content::Pc1600Basic => {
-                crate::convert::convert_with(data, device.into(), None, true, eol).map(|o| o.bytes)
+                crate::convert::convert_with(data, device.into(), None, true, eol, SegmentMarker::Wire)
+                    .map(|o| o.bytes)
             }
             _ => {
                 // Treat as a headerless payload with the caller's device.
@@ -248,16 +296,7 @@ pub unsafe extern "C" fn sde_detokenize(
                 crate::detokenize::detokenize_to_text(data, reg, eol).map(String::into_bytes)
             }
         };
-        match result {
-            Ok(bytes) => match write_buf(bytes, out, out_len) {
-                Ok(()) => SDE_OK,
-                Err(c) => c,
-            },
-            Err(e) => {
-                set_error(&e.to_string());
-                SDE_ERR
-            }
-        }
+        finish_bytes(result, out, out_len)
     })
 }
 
@@ -283,15 +322,19 @@ pub unsafe extern "C" fn sde_convert(
         clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         let nm = opt_str(name);
-        match crate::convert::convert_with(data, device.into(), nm, true, line_ending.into()) {
+        match crate::convert::convert_with(
+            data,
+            device.into(),
+            nm,
+            true,
+            line_ending.into(),
+            SegmentMarker::Wire,
+        ) {
             Ok(o) => {
                 if !out_kind.is_null() {
                     *out_kind = o.content.into();
                 }
-                match write_buf(o.bytes, out, out_len) {
-                    Ok(()) => SDE_OK,
-                    Err(c) => c,
-                }
+                finish_bytes(Ok(o.bytes), out, out_len)
             }
             Err(e) => {
                 set_error(&e.to_string());

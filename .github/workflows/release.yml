@@ -67,6 +67,10 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      - name: Install libudev (Linux serial-port support)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.targets }}

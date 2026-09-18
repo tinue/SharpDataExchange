@@ -1,5 +1,4 @@
-//! CP437 <-> text conversion, matching Java `Charset.forName("Cp437")` as used by
-//! `sharp-basic-antlr`'s `Cp437` helper.
+//! CP437 <-> text conversion.
 //!
 //! The Sharp PC-1500/1500A/1600 character set is treated as IBM PC Code Page 437.
 //! ASCII `0x00..=0x7F` is identity; `0x80..=0xFF` are the CP437 glyphs. Every byte
@@ -33,8 +32,7 @@ pub fn to_byte(c: char) -> Option<u8> {
         .map(|i| FROM_CHAR[i].1)
 }
 
-/// Encode text to CP437 bytes. Unrepresentable characters become `?` (0x3F),
-/// mirroring `Cp437.encode` in the Java code.
+/// Encode text to CP437 bytes. Unrepresentable characters become `?` (0x3F).
 pub fn encode_lossy(s: &str) -> Vec<u8> {
     s.chars().map(|c| to_byte(c).unwrap_or(b'?')).collect()
 }

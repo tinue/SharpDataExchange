@@ -1,8 +1,7 @@
 # The tokenizer works on raw bytes, and the byte-parity fixtures under
-# tests/fixtures/ assume LF-only source listings (they are copied verbatim from
-# the Java SharpDataExchange testsuite). Force LF in the working tree on every
-# platform so a Windows checkout does not turn each newline into CR + LF and add
-# a stray 0x0D to every tokenized line.
+# tests/fixtures/ assume LF-only source listings. Force LF in the working tree on
+# every platform so a Windows checkout does not turn each newline into CR + LF and
+# add a stray 0x0D to every tokenized line.
 * text=auto eol=lf
 
 # Binary fixtures and any other binary payloads: never touch them.

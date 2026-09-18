@@ -1,5 +1,5 @@
-//! Tokenized payload bytes -> normalized ASCII BASIC listing, ported from Java
-//! `BinaryBasicDetokenizer` (which mirrors the ROM `LIST` walk).
+//! Tokenized payload bytes -> normalized ASCII BASIC listing, modelled on the ROM
+//! `LIST` walk.
 //!
 //! Output is *normalized*, not the original source: `<lineNo><space>` then, for each
 //! keyword, its full name plus exactly one trailing space and no leading space; literal
@@ -21,10 +21,23 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
         if payload[pos] == 0 && payload[pos + 1] == 0 {
             break;
         }
+        // 0xFF 0x00 0x00: boundary between this named program segment and the next
+        // one (the device supports multiple GOSUB "LABEL"-addressable sub-programs
+        // per save; each restarts its own line numbering, and its own first line is
+        // normally a `<n> "LABEL"` line naming it). Confirmed on real PC-1600
+        // hardware: RUN executes the last segment first, then jumps to the first;
+        // touching PRO/scroll after loading corrupts the program. "#SEGMENT" is the
+        // reserved round-trippable marker line for this byte sequence (see
+        // `scanner::tokenize`'s handling of it).
+        if payload[pos] == 0xFF && pos + 2 < payload.len() && payload[pos + 1] == 0 && payload[pos + 2] == 0 {
+            lines.push("#SEGMENT".to_string());
+            pos += 3;
+            continue;
+        }
         if pos + 2 >= payload.len() {
             bail!("malformed payload: truncated line header at offset {pos}");
         }
-        let line_no = ((payload[pos] as u16) << 8) | payload[pos + 1] as u16;
+        let line_no = u16::from_be_bytes([payload[pos], payload[pos + 1]]);
         let length = payload[pos + 2] as usize;
         pos += 3;
         if length == 0 {
@@ -44,7 +57,7 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
             let b1 = payload[pos];
             if reg.is_two_byte_token_high_byte(b1) {
                 let b2 = payload[pos + 1];
-                let code = ((b1 as u16) << 8) | b2 as u16;
+                let code = u16::from_be_bytes([b1, b2]);
                 match reg.lookup_code(code) {
                     Some(_) if code == REM_CODE => {
                         pos += 2;
@@ -66,6 +79,14 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
                         pos += 1;
                     }
                 }
+            } else if b1 == 0x1F && pos + 3 <= content_end && payload[pos + 3] == 0x00 {
+                // 0x1F [lineNum hi] [lineNum lo] 0x00: the compact binary line-number
+                // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN/RESUME/
+                // RUN/RESTORE target (confirmed against real PC-1600 memory dumps; the
+                // PC-1500 always uses plain ASCII digits instead).
+                let target = u16::from_be_bytes([payload[pos + 1], payload[pos + 2]]);
+                s.push_str(&target.to_string());
+                pos += 4;
             } else if b1 == 0x22 {
                 s.push('"');
                 pos += 1;

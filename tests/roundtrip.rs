@@ -64,7 +64,9 @@ fn empty_quote_comment_roundtrips_without_error() {
 
     // With a header, then back to ASCII (LF forced so the assertion holds on Windows).
     let bbin = convert(b"10 '\n", Device::Pc1500, Some("t"), true).unwrap().bytes;
-    let ascii = convert_with(&bbin, Device::Pc1500, None, true, LineEnding::Lf).unwrap().bytes;
+    let ascii = convert_with(&bbin, Device::Pc1500, None, true, LineEnding::Lf, sharpdx::SegmentMarker::Wire)
+        .unwrap()
+        .bytes;
     assert_eq!(ascii, b"10 '\n");
 }
 
@@ -75,6 +77,7 @@ fn line_length_boundary() {
 
     // A synthetic >254-byte tokenized line is rejected.
     let huge = format!("10 {}\n", "\"x\";:".repeat(60));
-    let err = scanner::tokenize(&huge, sharpdx::registry::pc1500()).unwrap_err();
+    let err =
+        scanner::tokenize(&huge, sharpdx::registry::pc1500(), sharpdx::SegmentMarker::Wire).unwrap_err();
     assert!(err.to_string().contains("too long"));
 }
