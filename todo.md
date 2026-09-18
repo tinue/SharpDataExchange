@@ -35,7 +35,18 @@ support abbreviations. Same research as item 2, for the PC-1600:
   PC-1600 ROM dump / PockEmul, or hardware observation).
 - Determine the CE-150 / CE-158 interaction for the PC-1600 match order.
 
-## 4. Manual follow-ups (trigger yourself)
+## 4. Serial-free lib variant (reduce Calc-U-1600's dependencies)
+
+Calc-U-1600 links `sharpdx.lib` only for tokenize/detokenize (the `convert` verb's
+underlying calls) — it never touches `sde get`/`sde put`'s serial transport. It still
+has to pull in `serialport` and its Windows backend regardless (including the
+transitive `windows-sys` 0.52 import-lib baggage worked around in 0.2.0's release
+packaging). Offer a serial-free build of the lib — e.g. a Cargo feature gating the
+serial transport module (`serialport` dependency, `get`/`put` commands, C ABI transfer
+entry points) off by default or behind a feature — so tokenize/detokenize-only
+consumers can link a smaller artifact with fewer dependencies.
+
+## 5. Manual follow-ups (trigger yourself)
 
 - [ ] PC-1600 ROM dump using the Rust version; once successful, update the PC-1600 ROM
       repository.
