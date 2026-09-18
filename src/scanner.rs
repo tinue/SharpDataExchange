@@ -56,7 +56,8 @@ pub enum SegmentMarker {
 
 /// Tokenize a full ASCII BASIC listing. `source` must already have had dotted
 /// abbreviations expanded (see [`crate::abbrev`]); newlines may be `\n` or `\r\n`.
-/// `marker` selects how a `#SEGMENT` line is rendered -- see [`SegmentMarker`].
+/// `marker` selects how a `#SEGMENT` line is rendered -- see [`SegmentMarker`]. A bare
+/// `99999` line is also accepted as an alias for `#SEGMENT` (tokenizing only).
 pub fn tokenize(source: &str, reg: &Registry, marker: SegmentMarker) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     for raw in source.split('\n') {
@@ -66,7 +67,13 @@ pub fn tokenize(source: &str, reg: &Registry, marker: SegmentMarker) -> Result<V
         // hardware). Checked before the generic comment-drop rule below, since it
         // also starts with '#'. See `detokenize::detokenize`'s handling of the same
         // byte sequence, and [`SegmentMarker`] for which bytes this emits.
-        if line.trim_end_matches([' ', '\t', '\r']) == "#SEGMENT" {
+        //
+        // A bare `99999` line is accepted here too: real downloaded PC-1600 listings
+        // conventionally use line number 99999 as a segment separator instead of the
+        // `#SEGMENT` marker. This is a tokenize-only convenience alias -- detokenize
+        // always emits `#SEGMENT`, never `99999`, so there's no round-trip ambiguity.
+        let trimmed_end = line.trim_end_matches([' ', '\t', '\r']);
+        if trimmed_end == "#SEGMENT" || trimmed_end == "99999" {
             match marker {
                 SegmentMarker::Wire => out.extend_from_slice(&[0xFF, 0x00, 0x00]),
                 SegmentMarker::Memory => out.push(0xFF),
@@ -79,7 +86,7 @@ pub fn tokenize(source: &str, reg: &Registry, marker: SegmentMarker) -> Result<V
         }
         let digits_end = line.find(|c: char| !c.is_ascii_digit()).unwrap_or(line.len());
         if digits_end == 0 {
-            // No line number -> unnumbered content is dropped (matches the Java encoder).
+            // No line number -> unnumbered content is dropped.
             continue;
         }
         let line_no = (line[..digits_end].parse::<u64>().unwrap_or(0) & 0xFFFF) as u16;
@@ -288,6 +295,18 @@ mod tests {
         );
         assert_eq!(
             tokenize("#SEGMENT\n", registry::pc1500(), SegmentMarker::Memory).unwrap(),
+            vec![0xFF]
+        );
+    }
+
+    #[test]
+    fn bare_99999_line_is_a_segment_marker_alias() {
+        assert_eq!(
+            tokenize("99999\n", registry::pc1500(), SegmentMarker::Wire).unwrap(),
+            tokenize("#SEGMENT\n", registry::pc1500(), SegmentMarker::Wire).unwrap(),
+        );
+        assert_eq!(
+            tokenize("99999\n", registry::pc1500(), SegmentMarker::Memory).unwrap(),
             vec![0xFF]
         );
     }
