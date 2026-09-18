@@ -40,26 +40,30 @@ pub struct RealSerial {
 impl RealSerial {
     /// Open `port_name` configured for `device` (baud rate + flow control per the
     /// device table in requirements §2): 8 data bits, no parity, 1 stop bit, hardware
-    /// flow control iff `device.has_hardware_flow_control()`, no exclusive lock (so a
-    /// pseudo-terminal peer that already holds the port open, e.g. an emulator, doesn't
-    /// make the open fail).
+    /// flow control iff `device.has_hardware_flow_control()`. On Unix, no exclusive
+    /// lock (so a peer that already holds the port open doesn't make the open fail);
+    /// Windows has no non-exclusive open mode for `serialport`, so this is skipped
+    /// there and every open is exclusive.
     pub fn open(port_name: &str, device: PocketDevice) -> Result<RealSerial> {
         let flow = if device.has_hardware_flow_control() {
             serialport::FlowControl::Hardware
         } else {
             serialport::FlowControl::None
         };
-        // `exclusive(false)`: a pseudo-terminal peer (the pc1600emul emulator) already
-        // holds its end of the pty open, so requesting exclusive access here would
-        // make the open fail. A real USB/serial adapter is never opened by anyone else,
-        // so dropping the exclusive lock is safe for all four devices.
-        let port = serialport::new(port_name, device.baud_rate())
+        let builder = serialport::new(port_name, device.baud_rate())
             .data_bits(serialport::DataBits::Eight)
             .parity(serialport::Parity::None)
             .stop_bits(serialport::StopBits::One)
             .flow_control(flow)
-            .timeout(Duration::from_millis(50))
-            .exclusive(false)
+            .timeout(Duration::from_millis(50));
+        // `exclusive(false)`: a real USB/serial adapter is never opened by anyone
+        // else, so dropping the exclusive lock is safe -- and needed so a peer that
+        // already holds the port open (e.g. one end of a pty pair) doesn't make the
+        // open fail. `SerialPortBuilder::exclusive` doesn't exist on Windows, which
+        // has no non-exclusive COM port mode to begin with.
+        #[cfg(not(windows))]
+        let builder = builder.exclusive(false);
+        let port = builder
             .open()
             .with_context(|| format!("could not open serial port {port_name}"))?;
         Ok(RealSerial { port })
