@@ -7,15 +7,17 @@ use crate::registry::Device;
 const CE158_LEN: usize = 27;
 const PC1600_LEN: usize = 16;
 
-/// The payload type recorded in a header. Reserve Area and Variables headers exist on
-/// the wire (CE-158 type chars `'A'` / `'H'`) but are intentionally not recognized here
-/// — out of scope for `get`/`put`. Whether the PC-1600 protocol has equivalent header
-/// types at all is *unresearched*, not confirmed absent — this enum simply doesn't
-/// model them either way.
+/// The payload type recorded in a header. `Reserve` and `Variables` are PC-1500/1500A
+/// (CE-158) only — the PC-1600 header format has no equivalent type byte for either
+/// (whether the PC-1600 protocol has one at all is *unresearched*, not confirmed
+/// absent; [`pc1600_file_type`] simply doesn't model one). Like `Basic`, neither
+/// carries a meaningful start/run address — those fields are `Machine`-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileType {
     Basic,
     Machine,
+    Reserve,
+    Variables,
 }
 
 /// A recognized header found in a byte buffer, fully parsed.
@@ -28,6 +30,9 @@ pub struct ParsedHeader {
     /// Header length in bytes (`offset + header_len` is where the payload starts).
     pub header_len: usize,
     /// Payload length in bytes, already corrected for CE-158's "capacity - 1" encoding.
+    /// Not meaningful for `FileType::Variables`: the wire always encodes it as `0`
+    /// regardless of the true payload size, so this decodes to `1` for that type —
+    /// callers must parse a Variables payload to end-of-buffer instead of trusting it.
     pub length: usize,
     /// Load start address. Only meaningful when `file_type == Machine`, else 0.
     pub start_addr: u32,
@@ -46,10 +51,9 @@ impl ParsedHeader {
 
 /// Locate and fully parse a CE-158 or PC-1600 header, tolerating leading capture noise
 /// (e.g. stray `0x00` bytes) before the magic. Returns the first match whose type byte
-/// is recognized (`Basic` or `Machine`); a header with an out-of-scope type (Reserve,
-/// Variables, or anything else unrecognized) is treated as not found and scanning does
-/// not continue past it — it stops at the first magic match rather than searching for a
-/// second, later one.
+/// is recognized; a header with an unrecognized type byte is treated as not found and
+/// scanning does not continue past it — it stops at the first magic match rather than
+/// searching for a second, later one.
 pub fn find(data: &[u8]) -> Option<ParsedHeader> {
     for i in 0..data.len() {
         // CE-158: 0x01, <type>, "COM"
@@ -66,9 +70,10 @@ pub fn find(data: &[u8]) -> Option<ParsedHeader> {
 
 fn ce158_file_type(type_char: u8) -> Option<FileType> {
     match type_char {
-        0x40 => Some(FileType::Basic),   // '@'
-        0x42 => Some(FileType::Machine), // 'B'
-        // 'A' (Reserve) / 'H' (Variables) recognized on the wire but out of scope here.
+        0x40 => Some(FileType::Basic),     // '@'
+        0x42 => Some(FileType::Machine),   // 'B'
+        0x41 => Some(FileType::Reserve),   // 'A'
+        0x48 => Some(FileType::Variables), // 'H'
         _ => None,
     }
 }
@@ -77,7 +82,9 @@ fn pc1600_file_type(type_byte: u8) -> Option<FileType> {
     match type_byte {
         0x21 => Some(FileType::Basic),
         0x10 => Some(FileType::Machine),
-        // No other PC-1600 type byte is modeled — unresearched, see module doc comment.
+        // Deliberately no Reserve/Variables mapping: the PC-1600 has no equivalent
+        // header type (or none is known — see FileType's doc comment), not an
+        // oversight. No other PC-1600 type byte is modeled either — unresearched.
         _ => None,
     }
 }
@@ -157,12 +164,17 @@ fn le24(data: &[u8], at: usize) -> u32 {
 ///
 /// Returns `None` when:
 /// - no recognized header magic/type has been found yet (need more bytes, or the stream
-///   never carries one — e.g. a plain ASCII listing or an unsupported header type such
-///   as Reserve/Variables, whose length field would be meaningless anyway);
+///   never carries one, e.g. a plain ASCII listing);
 /// - a header's magic was found but there aren't yet enough bytes to read it fully.
 ///
 /// It stops at the first magic match rather than continuing to scan for a second one
 /// once bytes are insufficient.
+///
+/// For `FileType::Variables`, the wire length field is unreliable (see `ParsedHeader`),
+/// so this resolves to a total that only covers the header itself plus 1 byte — under
+/// what a real transfer actually sends. A live receive of a Variables payload cannot
+/// rely on this for framing and must fall back to idle-timeout-based completion, the
+/// same way headerless content already does.
 pub fn expected_total_bytes(data: &[u8]) -> Option<usize> {
     find(data).map(|h| h.payload_start() + h.length)
 }
@@ -205,8 +217,10 @@ fn build_ce158(spec: BuildHeader) -> Vec<u8> {
     let mut h = vec![0u8; CE158_LEN];
     h[0] = 0x01; // magic
     h[1] = match spec.file_type {
-        FileType::Basic => 0x40,   // '@'
-        FileType::Machine => 0x42, // 'B'
+        FileType::Basic => 0x40,     // '@'
+        FileType::Machine => 0x42,   // 'B'
+        FileType::Reserve => 0x41,   // 'A'
+        FileType::Variables => 0x48, // 'H'
     };
     h[2..5].copy_from_slice(b"COM");
 
@@ -220,8 +234,14 @@ fn build_ce158(spec: BuildHeader) -> Vec<u8> {
         h[0x15..0x17].copy_from_slice(&(spec.start_addr as u16).to_be_bytes());
     }
 
-    // 0x17..0x19 data length, big-endian, "capacity - 1"
-    let dl = spec.payload_len.wrapping_sub(1) as u16;
+    // 0x17..0x19 data length, big-endian, "capacity - 1". A Variables payload is
+    // always sent with wire value 0 regardless of true size — the receiving device
+    // doesn't use this field for that type (see `ParsedHeader::length`'s doc comment).
+    let dl: u16 = if spec.file_type == FileType::Variables {
+        0
+    } else {
+        spec.payload_len.wrapping_sub(1) as u16
+    };
     h[0x17..0x19].copy_from_slice(&dl.to_be_bytes());
 
     if spec.file_type == FileType::Machine {
@@ -236,6 +256,9 @@ fn build_pc1600(spec: BuildHeader) -> Vec<u8> {
     h[4] = match spec.file_type {
         FileType::Basic => 0x21,
         FileType::Machine => 0x10,
+        FileType::Reserve | FileType::Variables => {
+            unreachable!("PC-1600 has no Reserve/Variables header type -- see FileType's doc comment")
+        }
     };
 
     // 0x05..0x08 data length, little-endian 3 bytes, exact payload length
@@ -332,12 +355,40 @@ mod tests {
     }
 
     #[test]
-    fn find_rejects_unsupported_ce158_type() {
-        let mut h = build(Device::Pc1500, Some("x"), 10);
-        h[1] = b'A'; // Reserve Area type char -- out of scope
-        assert_eq!(find(&h), None);
-        h[1] = b'H'; // Variables type char -- out of scope
-        assert_eq!(find(&h), None);
+    fn ce158_reserve_roundtrip_shape() {
+        let h = build_header(BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Reserve,
+            name: Some("x"),
+            payload_len: 188,
+            start_addr: 0,
+            run_addr: 0,
+        });
+        assert_eq!(h[1], b'A');
+        let p = find(&h).unwrap();
+        assert_eq!(p.file_type, FileType::Reserve);
+        assert_eq!(p.length, 188);
+        assert_eq!(p.start_addr, 0);
+        assert_eq!(p.run_addr, 0);
+    }
+
+    #[test]
+    fn ce158_variables_roundtrip_shape() {
+        // The wire length field is always 0 for Variables, regardless of the true
+        // payload length passed in -- the device doesn't use this field for this type.
+        let h = build_header(BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Variables,
+            name: Some("x"),
+            payload_len: 999,
+            start_addr: 0,
+            run_addr: 0,
+        });
+        assert_eq!(h[1], b'H');
+        assert_eq!(&h[0x17..0x19], &[0x00, 0x00]);
+        let p = find(&h).unwrap();
+        assert_eq!(p.file_type, FileType::Variables);
+        assert_eq!(p.length, 1); // decoded from the always-0 wire value; not meaningful
     }
 
     #[test]
@@ -359,9 +410,18 @@ mod tests {
     }
 
     #[test]
-    fn expected_total_bytes_unresolvable_for_unsupported_type() {
-        let mut h = build(Device::Pc1500, Some("x"), 10);
-        h[1] = b'H'; // Variables -- length field would be meaningless anyway
-        assert_eq!(expected_total_bytes(&h), None);
+    fn expected_total_bytes_undercounts_for_variables() {
+        // The always-0 wire length field makes this resolve, but to a total that's
+        // too small to be useful for framing a live receive -- documented behavior,
+        // not a bug; see `expected_total_bytes`'s doc comment.
+        let h = build_header(BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Variables,
+            name: Some("x"),
+            payload_len: 999,
+            start_addr: 0,
+            run_addr: 0,
+        });
+        assert_eq!(expected_total_bytes(&h), Some(CE158_LEN + 1));
     }
 }

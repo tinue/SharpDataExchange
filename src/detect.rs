@@ -18,8 +18,14 @@ pub enum Content {
     /// Machine language behind a PC-1600 header. Not handled by `convert`/`paths`
     /// (BASIC-only); used by `get`/`put`.
     Pc1600Machine,
-    /// Anything else: a header for an out-of-scope file type (Reserve, Variables),
-    /// binary data, or text that does not look like a BASIC listing.
+    /// Reserve Area (key-assignment layers), binary behind a CE-158 header or
+    /// headerless SDAR ASCII text. PC-1500/1500A only; not handled by `convert`.
+    Ce158Reserve,
+    /// Variables, binary behind a CE-158 header or headerless SDAV ASCII text.
+    /// PC-1500/1500A only; not handled by `convert`.
+    Ce158Variables,
+    /// Anything else: binary data, or text that does not look like any recognized
+    /// listing/marker format.
     Unknown,
 }
 
@@ -31,6 +37,8 @@ impl Content {
             Content::Pc1600Basic => "tokenized BASIC (PC-1600 header)",
             Content::Ce158Machine => "machine language (CE-158 header)",
             Content::Pc1600Machine => "machine language (PC-1600 header)",
+            Content::Ce158Reserve => "Reserve Area (CE-158 header)",
+            Content::Ce158Variables => "Variables (CE-158 header)",
             Content::Unknown => "unrecognized content",
         }
     }
@@ -53,18 +61,47 @@ pub fn detect(data: &[u8]) -> Content {
 /// there isn't one) and wants to avoid re-scanning `data` for the header magic.
 pub fn detect_from_header(header: Option<&header::ParsedHeader>, data: &[u8]) -> Content {
     if let Some(h) = header {
-        return match (h.device, h.file_type) {
-            (Device::Pc1500, FileType::Basic) => Content::Ce158Basic,
-            (Device::Pc1500, FileType::Machine) => Content::Ce158Machine,
-            (Device::Pc1600, FileType::Basic) => Content::Pc1600Basic,
-            (Device::Pc1600, FileType::Machine) => Content::Pc1600Machine,
+        return match h.device {
+            Device::Pc1500 => match h.file_type {
+                FileType::Basic => Content::Ce158Basic,
+                FileType::Machine => Content::Ce158Machine,
+                FileType::Reserve => Content::Ce158Reserve,
+                FileType::Variables => Content::Ce158Variables,
+            },
+            Device::Pc1600 => match h.file_type {
+                FileType::Basic => Content::Pc1600Basic,
+                FileType::Machine => Content::Pc1600Machine,
+                // No PC-1600 header ever decodes to these -- header::pc1600_file_type
+                // never maps a type byte to them.
+                FileType::Reserve | FileType::Variables => {
+                    unreachable!("PC-1600 headers never decode to Reserve/Variables")
+                }
+            },
         };
     }
-    if looks_like_ascii_basic(data) {
+    let first_line = first_non_blank_line(data);
+    if first_line.as_deref().is_some_and(|l| l.starts_with(crate::reserve::MARKER)) {
+        Content::Ce158Reserve
+    } else if first_line.as_deref().is_some_and(|l| l.starts_with(crate::variables::MARKER)) {
+        Content::Ce158Variables
+    } else if looks_like_ascii_basic(data) {
         Content::AsciiBasic
     } else {
         Content::Unknown
     }
+}
+
+/// The first non-blank line of `data` decoded as CP437 text, or `None` if `data` isn't
+/// decodable as plain text at all (contains binary control bytes).
+fn first_non_blank_line(data: &[u8]) -> Option<String> {
+    if data
+        .iter()
+        .any(|&b| b < 0x20 && !matches!(b, 0x09 | 0x0A | 0x0D | 0x1A))
+    {
+        return None;
+    }
+    let text = crate::cp437::decode(data);
+    text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
 }
 
 fn looks_like_ascii_basic(data: &[u8]) -> bool {
@@ -140,5 +177,39 @@ mod tests {
     fn headerless_tokenized_is_unknown() {
         // LineLengthTest.bin style: starts 00 0A 07 22 ...
         assert_eq!(detect(&[0x00, 0x0A, 0x07, 0x22, 0x41, 0x22, 0xF1, 0xB3, 0x30, 0x0D]), Content::Unknown);
+    }
+
+    #[test]
+    fn headered_reserve_and_variables() {
+        let h = header::build_header(header::BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Reserve,
+            name: Some("x"),
+            payload_len: 188,
+            start_addr: 0,
+            run_addr: 0,
+        });
+        assert_eq!(detect(&h), Content::Ce158Reserve);
+
+        let h = header::build_header(header::BuildHeader {
+            device: Device::Pc1500,
+            file_type: FileType::Variables,
+            name: Some("x"),
+            payload_len: 12,
+            start_addr: 0,
+            run_addr: 0,
+        });
+        assert_eq!(detect(&h), Content::Ce158Variables);
+    }
+
+    #[test]
+    fn headerless_marker_wins_over_ascii_basic_heuristic() {
+        // A body that would otherwise look like a BASIC listing must not shadow the
+        // marker line.
+        let text = "; sde-reserve:1.0 pc1500\n\n[layer 1]\nlabel: 10 PRINT\nkey 1: 20 GOTO 10\n";
+        assert_eq!(detect(text.as_bytes()), Content::Ce158Reserve);
+
+        let text = "; sde-variables:1.0 pc1500\n; Count: 1\n10\n";
+        assert_eq!(detect(text.as_bytes()), Content::Ce158Variables);
     }
 }
