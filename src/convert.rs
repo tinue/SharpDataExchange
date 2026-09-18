@@ -61,14 +61,7 @@ pub fn convert_with(
     match content {
         Content::AsciiBasic => {
             let listing = text::decode_bas_listing(input);
-            if device == Device::Pc1500 {
-                if let Some((line, col, ch)) = text::first_non_ascii_for_pc1500(&listing) {
-                    bail!(
-                        "PC-1500 BASIC is 7-bit ASCII: line {line}, column {col} has U+{:04X} '{ch}'",
-                        ch as u32
-                    );
-                }
-            }
+            text::require_ascii_for_pc1500(&listing, device)?;
             let reg = Registry::for_device(device);
             let expanded = expand_all(&listing, reg);
             let payload = scanner::tokenize(&expanded, reg, segment_marker)?;

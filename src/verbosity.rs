@@ -24,6 +24,13 @@ pub fn resolve(flag: VerbosityFlag, config: &Config) -> bool {
     }
 }
 
+/// Print a progress message to stderr when `verbose` is set.
+pub fn narrate(verbose: bool, msg: impl AsRef<str>) {
+    if verbose {
+        eprintln!("{}", msg.as_ref());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

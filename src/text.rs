@@ -11,9 +11,19 @@ pub fn decode_bas_listing(raw: &[u8]) -> String {
 }
 
 fn normalize(s: &str) -> String {
-    let s = s.replace("\r\n", "\n").replace('\r', "\n");
-    let trimmed = s.trim_end_matches('\u{001A}');
-    trimmed.to_string()
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push('\n');
+        } else {
+            out.push(ch);
+        }
+    }
+    out.trim_end_matches('\u{001A}').to_string()
 }
 
 /// First character with a code point `> 0x7F`, as `(line, col, ch)` with 1-based line and
@@ -33,6 +43,19 @@ pub fn first_non_ascii_for_pc1500(text: &str) -> Option<(usize, usize, char)> {
         col += 1;
     }
     None
+}
+
+/// Reject `text` if targeting the PC-1500 and it contains a character outside 7-bit ASCII.
+pub fn require_ascii_for_pc1500(text: &str, device: crate::registry::Device) -> anyhow::Result<()> {
+    if device == crate::registry::Device::Pc1500 {
+        if let Some((line, col, ch)) = first_non_ascii_for_pc1500(text) {
+            anyhow::bail!(
+                "PC-1500 BASIC is 7-bit ASCII: line {line}, column {col} has U+{:04X} '{ch}'",
+                ch as u32
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

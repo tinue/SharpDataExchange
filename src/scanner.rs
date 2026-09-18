@@ -99,8 +99,7 @@ pub fn tokenize(source: &str, reg: &Registry, marker: SegmentMarker) -> Result<V
                 content.len()
             );
         }
-        out.push((line_no >> 8) as u8);
-        out.push((line_no & 0xFF) as u8);
+        out.extend_from_slice(&line_no.to_be_bytes());
         out.push((content.len() + 1) as u8);
         out.extend_from_slice(&content);
         out.push(CR);
@@ -152,8 +151,7 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
             if let Ok(target) = std::str::from_utf8(&bytes[start..i]).unwrap().parse::<u32>() {
                 if target <= 0xFFFF {
                     content.push(0x1F);
-                    content.push((target >> 8) as u8);
-                    content.push((target & 0xFF) as u8);
+                    content.extend_from_slice(&(target as u16).to_be_bytes());
                     content.push(0x00);
                     continue;
                 }
@@ -187,8 +185,7 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
             }
             b'A'..=b'Z' => match reg.longest_keyword_prefix(&bytes[i..]) {
                 Some(kw) => {
-                    content.push((kw.code >> 8) as u8);
-                    content.push((kw.code & 0xFF) as u8);
+                    content.extend_from_slice(&kw.code.to_be_bytes());
                     i += kw.name.len();
                     if kw.code == REM_CODE {
                         content.extend_from_slice(&bytes[i..]);

@@ -90,14 +90,7 @@ pub fn build_put_bytes(
         // input is always tokenized regardless of what --format was given.
         let text = crate::text::decode_bas_listing(raw);
         let reg_device = device.to_registry_device();
-        if reg_device == crate::registry::Device::Pc1500 {
-            if let Some((line, col, ch)) = crate::text::first_non_ascii_for_pc1500(&text) {
-                bail!(
-                    "PC-1500 BASIC is 7-bit ASCII: line {line}, column {col} has U+{:04X} '{ch}'",
-                    ch as u32
-                );
-            }
-        }
+        crate::text::require_ascii_for_pc1500(&text, reg_device)?;
         let name = filename::synth_basename(&opts.input_file);
         let outcome = crate::convert::convert_with(
             text.as_bytes(),
@@ -140,12 +133,6 @@ pub fn build_put_bytes(
     )
 }
 
-fn narrate(opts: &PutOptions, msg: impl AsRef<str>) {
-    if opts.verbose {
-        eprintln!("{}", msg.as_ref());
-    }
-}
-
 pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     let raw = std::fs::read(&opts.input_file)
         .with_context(|| format!("cannot read {}", opts.input_file))?;
@@ -154,16 +141,16 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     }
 
     let header = header::find(&raw);
-    let content = detect::detect(&raw);
+    let content = detect::detect_from_header(header.as_ref(), &raw);
 
     if let Some(h) = &header {
-        narrate(opts, format!("Header already present ({:?}, offset {})", h.file_type, h.offset));
+        crate::verbosity::narrate(opts.verbose, format!("Header already present ({:?}, offset {})", h.file_type, h.offset));
     } else {
-        narrate(opts, format!("No header present; detected content: {}", content.describe()));
+        crate::verbosity::narrate(opts.verbose, format!("No header present; detected content: {}", content.describe()));
     }
 
     let device = resolve_effective_device(opts.device, header.as_ref())?;
-    narrate(opts, format!("Using device {device}"));
+    crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
     // §5's last bullet: an explicit `--format ascii` on headerless ASCII BASIC input
     // sends it line-by-line, untokenized, instead of the normal tokenized-binary path.
@@ -179,8 +166,8 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
         if let Some(h) = header::find(&bytes) {
             if h.file_type == FileType::Machine {
                 let w = device.addr_hex_width();
-                narrate(
-                    opts,
+                crate::verbosity::narrate(
+                    opts.verbose,
                     format!(
                         "Adding MACHINE header: load=0x{:0w$X} run=0x{:0w$X}",
                         h.start_addr,
@@ -189,11 +176,11 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
                     ),
                 );
             } else {
-                narrate(opts, "Tokenized ASCII BASIC input before sending");
+                crate::verbosity::narrate(opts.verbose, "Tokenized ASCII BASIC input before sending");
             }
         }
     } else if header.is_none() && header_len == 0 {
-        narrate(opts, "Sending raw bytes unmodified (no header, --raw)");
+        crate::verbosity::narrate(opts.verbose, "Sending raw bytes unmodified (no header, --raw)");
     }
 
     if opts.dry_run {
@@ -205,7 +192,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     }
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
-    narrate(opts, format!("Using port {port_name}"));
+    crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
     let mut transport = RealTransport::open(&port_name, device)?;
     send(&mut transport, device, header_len, &bytes)?;
 
@@ -225,16 +212,9 @@ fn run_put_ascii_lines(
     device: PocketDevice,
 ) -> Result<String> {
     let text = crate::text::decode_bas_listing(raw);
-    if device.to_registry_device() == crate::registry::Device::Pc1500 {
-        if let Some((line, col, ch)) = crate::text::first_non_ascii_for_pc1500(&text) {
-            bail!(
-                "PC-1500 BASIC is 7-bit ASCII: line {line}, column {col} has U+{:04X} '{ch}'",
-                ch as u32
-            );
-        }
-    }
+    crate::text::require_ascii_for_pc1500(&text, device.to_registry_device())?;
     let lines: Vec<String> = text.lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
-    narrate(opts, format!("Sending {} lines as ASCII (no tokenization)", lines.len()));
+    crate::verbosity::narrate(opts.verbose, format!("Sending {} lines as ASCII (no tokenization)", lines.len()));
 
     if opts.dry_run {
         return Ok(format!(
@@ -245,7 +225,7 @@ fn run_put_ascii_lines(
     }
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
-    narrate(opts, format!("Using port {port_name}"));
+    crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
     let mut transport = RealTransport::open(&port_name, device)?;
     sender::send_ascii_lines(&mut transport, device, &lines)?;
 

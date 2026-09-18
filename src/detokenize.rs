@@ -37,7 +37,7 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
         if pos + 2 >= payload.len() {
             bail!("malformed payload: truncated line header at offset {pos}");
         }
-        let line_no = ((payload[pos] as u16) << 8) | payload[pos + 1] as u16;
+        let line_no = u16::from_be_bytes([payload[pos], payload[pos + 1]]);
         let length = payload[pos + 2] as usize;
         pos += 3;
         if length == 0 {
@@ -57,7 +57,7 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
             let b1 = payload[pos];
             if reg.is_two_byte_token_high_byte(b1) {
                 let b2 = payload[pos + 1];
-                let code = ((b1 as u16) << 8) | b2 as u16;
+                let code = u16::from_be_bytes([b1, b2]);
                 match reg.lookup_code(code) {
                     Some(_) if code == REM_CODE => {
                         pos += 2;
@@ -84,7 +84,7 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
                 // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN target
                 // (confirmed against real PC-1600 memory dumps; the PC-1500 always
                 // uses plain ASCII digits instead).
-                let target = ((payload[pos + 1] as u16) << 8) | payload[pos + 2] as u16;
+                let target = u16::from_be_bytes([payload[pos + 1], payload[pos + 2]]);
                 s.push_str(&target.to_string());
                 pos += 4;
             } else if b1 == 0x22 {

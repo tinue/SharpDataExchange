@@ -144,12 +144,12 @@ fn parse_pc1600(data: &[u8], offset: usize) -> Option<ParsedHeader> {
     })
 }
 
-fn be16(data: &[u8], at: usize) -> u16 {
-    ((data[at] as u16) << 8) | data[at + 1] as u16
+pub(crate) fn be16(data: &[u8], at: usize) -> u16 {
+    u16::from_be_bytes([data[at], data[at + 1]])
 }
 
 fn le24(data: &[u8], at: usize) -> u32 {
-    (data[at] as u32) | ((data[at + 1] as u32) << 8) | ((data[at + 2] as u32) << 16)
+    u32::from_le_bytes([data[at], data[at + 1], data[at + 2], 0])
 }
 
 /// Scan a growing buffer (as bytes arrive over serial) and report the total number of
@@ -164,21 +164,7 @@ fn le24(data: &[u8], at: usize) -> u32 {
 /// It stops at the first magic match rather than continuing to scan for a second one
 /// once bytes are insufficient.
 pub fn expected_total_bytes(data: &[u8]) -> Option<usize> {
-    for i in 0..data.len() {
-        if data[i] == 0x01 && data.get(i + 2..i + 5) == Some(b"COM") {
-            if data.len() < i + CE158_LEN {
-                return None;
-            }
-            return parse_ce158(data, i).map(|h| h.payload_start() + h.length);
-        }
-        if data.get(i..i + 4) == Some(&[0xFF, 0x10, 0x00, 0x00][..]) {
-            if data.len() < i + PC1600_LEN {
-                return None;
-            }
-            return parse_pc1600(data, i).map(|h| h.payload_start() + h.length);
-        }
-    }
-    None
+    find(data).map(|h| h.payload_start() + h.length)
 }
 
 /// Arguments for building a serial header. `name` supplies the CE-158 filename
@@ -231,18 +217,15 @@ fn build_ce158(spec: BuildHeader) -> Vec<u8> {
     h[5..5 + fname.len()].copy_from_slice(&fname);
 
     if spec.file_type == FileType::Machine {
-        h[0x15] = (spec.start_addr >> 8) as u8;
-        h[0x16] = (spec.start_addr & 0xFF) as u8;
+        h[0x15..0x17].copy_from_slice(&(spec.start_addr as u16).to_be_bytes());
     }
 
     // 0x17..0x19 data length, big-endian, "capacity - 1"
     let dl = spec.payload_len.wrapping_sub(1) as u16;
-    h[0x17] = (dl >> 8) as u8;
-    h[0x18] = (dl & 0xFF) as u8;
+    h[0x17..0x19].copy_from_slice(&dl.to_be_bytes());
 
     if spec.file_type == FileType::Machine {
-        h[0x19] = (spec.run_addr >> 8) as u8;
-        h[0x1A] = (spec.run_addr & 0xFF) as u8;
+        h[0x19..0x1B].copy_from_slice(&(spec.run_addr as u16).to_be_bytes());
     }
     h
 }
@@ -256,21 +239,11 @@ fn build_pc1600(spec: BuildHeader) -> Vec<u8> {
     };
 
     // 0x05..0x08 data length, little-endian 3 bytes, exact payload length
-    let dl = spec.payload_len as u32;
-    h[5] = (dl & 0xFF) as u8;
-    h[6] = ((dl >> 8) & 0xFF) as u8;
-    h[7] = ((dl >> 16) & 0xFF) as u8;
+    h[5..8].copy_from_slice(&(spec.payload_len as u32).to_le_bytes()[..3]);
 
     if spec.file_type == FileType::Machine {
-        let sa = spec.start_addr;
-        h[8] = (sa & 0xFF) as u8;
-        h[9] = ((sa >> 8) & 0xFF) as u8;
-        h[10] = ((sa >> 16) & 0xFF) as u8;
-
-        let ra = spec.run_addr;
-        h[11] = (ra & 0xFF) as u8;
-        h[12] = ((ra >> 8) & 0xFF) as u8;
-        h[13] = ((ra >> 16) & 0xFF) as u8;
+        h[8..11].copy_from_slice(&spec.start_addr.to_le_bytes()[..3]);
+        h[11..14].copy_from_slice(&spec.run_addr.to_le_bytes()[..3]);
     }
 
     // 0x0E..0x10 end-of-header marker. Confirmed against a real PC-1600 capture

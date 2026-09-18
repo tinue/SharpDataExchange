@@ -178,6 +178,19 @@ unsafe fn write_buf(bytes: Vec<u8>, out: *mut *mut u8, out_len: *mut usize) -> R
     Ok(())
 }
 
+unsafe fn finish_bytes(result: anyhow::Result<Vec<u8>>, out: *mut *mut u8, out_len: *mut usize) -> i32 {
+    match result {
+        Ok(bytes) => match write_buf(bytes, out, out_len) {
+            Ok(()) => SDE_OK,
+            Err(c) => c,
+        },
+        Err(e) => {
+            set_error(&e.to_string());
+            SDE_ERR
+        }
+    }
+}
+
 fn guard(f: impl FnOnce() -> i32) -> i32 {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(code) => code,
@@ -239,10 +252,7 @@ pub unsafe extern "C" fn sde_tokenize(
             LineEnding::Platform,
             segment_marker.into(),
         ) {
-            Ok(o) if matches!(o.content, Content::AsciiBasic) => match write_buf(o.bytes, out, out_len) {
-                Ok(()) => SDE_OK,
-                Err(c) => c,
-            },
+            Ok(o) if matches!(o.content, Content::AsciiBasic) => finish_bytes(Ok(o.bytes), out, out_len),
             Ok(_) => {
                 set_error("input is not ASCII BASIC");
                 SDE_ERR
@@ -286,16 +296,7 @@ pub unsafe extern "C" fn sde_detokenize(
                 crate::detokenize::detokenize_to_text(data, reg, eol).map(String::into_bytes)
             }
         };
-        match result {
-            Ok(bytes) => match write_buf(bytes, out, out_len) {
-                Ok(()) => SDE_OK,
-                Err(c) => c,
-            },
-            Err(e) => {
-                set_error(&e.to_string());
-                SDE_ERR
-            }
-        }
+        finish_bytes(result, out, out_len)
     })
 }
 
@@ -333,10 +334,7 @@ pub unsafe extern "C" fn sde_convert(
                 if !out_kind.is_null() {
                     *out_kind = o.content.into();
                 }
-                match write_buf(o.bytes, out, out_len) {
-                    Ok(()) => SDE_OK,
-                    Err(c) => c,
-                }
+                finish_bytes(Ok(o.bytes), out, out_len)
             }
             Err(e) => {
                 set_error(&e.to_string());

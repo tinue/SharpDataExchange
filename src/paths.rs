@@ -67,11 +67,7 @@ pub fn run_convert(
 
 /// If the final path segment has no `.`, append `.bas`.
 fn append_bas_if_missing(file: &str) -> PathBuf {
-    let p = Path::new(file);
-    match p.file_name().and_then(|s| s.to_str()) {
-        Some(name) if !name.contains('.') => p.with_file_name(format!("{name}.{ASCII_EXT}")),
-        _ => p.to_path_buf(),
-    }
+    PathBuf::from(crate::filename::append_ext_if_missing(file, ASCII_EXT))
 }
 
 fn ext_of(p: &Path) -> Option<String> {
@@ -104,17 +100,15 @@ fn derive_convert_output(outfile: Option<&str>, in_path: &Path, target_ext: &str
     match outfile {
         Some(given) => {
             let p = Path::new(given);
-            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or_default();
-            if !name.contains('.') {
-                Ok(p.with_file_name(format!("{name}.{target_ext}")))
-            } else {
-                match ext_of(p).as_deref() {
-                    Some(e @ (ASCII_EXT | TOKENIZED_EXT)) if e != target_ext => bail!(
-                        "output {} has extension .{e} but this conversion produces .{target_ext}",
-                        p.display()
-                    ),
-                    _ => Ok(p.to_path_buf()),
-                }
+            if p.file_name().and_then(|s| s.to_str()).is_some_and(|n| !n.contains('.')) {
+                return Ok(PathBuf::from(crate::filename::append_ext_if_missing(given, target_ext)));
+            }
+            match ext_of(p).as_deref() {
+                Some(e @ (ASCII_EXT | TOKENIZED_EXT)) if e != target_ext => bail!(
+                    "output {} has extension .{e} but this conversion produces .{target_ext}",
+                    p.display()
+                ),
+                _ => Ok(p.to_path_buf()),
             }
         }
         None => Ok(in_path.with_extension(target_ext)),

@@ -42,23 +42,17 @@ pub struct Outcome {
     pub summary: String,
 }
 
-fn narrate(opts: &GetOptions, msg: impl AsRef<str>) {
-    if opts.verbose {
-        eprintln!("{}", msg.as_ref());
-    }
-}
-
 pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     if opts.raw && opts.output_file.is_none() {
         bail!("--raw requires an explicit output file");
     }
 
     let port_name = serial::resolve_port(opts.device, opts.port.as_deref(), config)?;
-    narrate(opts, format!("Using port {port_name}"));
+    crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
     let mut transport = RealTransport::open(&port_name, opts.device)?;
     let idle_timeout = Duration::from_millis(opts.device.idle_timeout_ms());
     let raw = receiver::receive_until_done(&mut transport, idle_timeout, opts.raw)?;
-    narrate(opts, format!("Received {} bytes", raw.len()));
+    crate::verbosity::narrate(opts.verbose, format!("Received {} bytes", raw.len()));
 
     let outcome = if opts.raw {
         process_raw(&raw, opts)?
@@ -90,11 +84,11 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     if let Some(h) = header::find(raw) {
         let same_family = family_matches(h.device, opts.device);
         if same_family {
-            narrate(opts, "Stripping detected header");
+            crate::verbosity::narrate(opts.verbose, "Stripping detected header");
             bytes = [&raw[..h.offset], &raw[h.payload_start()..]].concat();
         } else {
-            narrate(
-                opts,
+            crate::verbosity::narrate(
+                opts.verbose,
                 format!("Not stripping {} header, as device is {}", header_flavor(h.device), opts.device),
             );
         }
@@ -128,10 +122,10 @@ fn header_flavor(device: crate::registry::Device) -> &'static str {
 /// filename.
 fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let header = header::find(raw);
-    let content = detect::detect(raw);
+    let content = detect::detect_from_header(header.as_ref(), raw);
 
     match &header {
-        Some(h) => narrate(opts, format!("Header found: {:?} ({:?})", h.file_type, h.device)),
+        Some(h) => crate::verbosity::narrate(opts.verbose, format!("Header found: {:?} ({:?})", h.file_type, h.device)),
         None => eprintln!("WARNING: No recognizable header in received data"),
     }
 
@@ -143,13 +137,13 @@ fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
 
     let bytes = match (opts.format, &header, content) {
         (Format::Ascii, Some(h), _) if h.file_type == FileType::Basic => {
-            narrate(opts, "De-tokenizing BASIC payload");
+            crate::verbosity::narrate(opts.verbose, "De-tokenizing BASIC payload");
             let payload = &raw[h.payload_start()..];
             let reg = Registry::for_device(h.device);
             detokenize::detokenize_to_text(payload, reg, LineEnding::Platform)?.into_bytes()
         }
         (Format::Ascii, None, Content::AsciiBasic) => {
-            narrate(opts, "Cleaning up ASCII BASIC listing");
+            crate::verbosity::narrate(opts.verbose, "Cleaning up ASCII BASIC listing");
             crate::text::decode_bas_listing(raw).into_bytes()
         }
         (Format::Ascii, _, _) => {

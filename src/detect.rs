@@ -46,7 +46,13 @@ impl Content {
 }
 
 pub fn detect(data: &[u8]) -> Content {
-    if let Some(h) = header::find(data) {
+    detect_from_header(header::find(data).as_ref(), data)
+}
+
+/// Same as [`detect`], but for a caller that has already located the header (or knows
+/// there isn't one) and wants to avoid re-scanning `data` for the header magic.
+pub fn detect_from_header(header: Option<&header::ParsedHeader>, data: &[u8]) -> Content {
+    if let Some(h) = header {
         return match (h.device, h.file_type) {
             (Device::Pc1500, FileType::Basic) => Content::Ce158Basic,
             (Device::Pc1500, FileType::Machine) => Content::Ce158Machine,
