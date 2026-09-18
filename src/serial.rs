@@ -306,8 +306,12 @@ pub fn resolve_port(
         let dir = config
             .get(crate::config::KEY_PC1600EMUL_PORT)
             .unwrap_or(crate::config::DEFAULT_PC1600EMUL_DIR);
-        let path = std::path::Path::new(dir).join(crate::config::PC1600EMUL_SOCKET_FILENAME);
-        return Ok(path.to_string_lossy().into_owned());
+        // Always joined with `/`, never `std::path::Path` (whose `.join()` uses `\`
+        // on Windows): this is a Unix pty path string, consumed only by the
+        // `#[cfg(unix)]` PtySerial -- never a path interpreted by the build host's
+        // own filesystem conventions.
+        let dir = dir.trim_end_matches('/');
+        return Ok(format!("{dir}/{}", crate::config::PC1600EMUL_SOCKET_FILENAME));
     }
     RealSerial::autodetect()
 }
