@@ -111,11 +111,11 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
     let mut content = Vec::with_capacity(bytes.len());
     let mut i = 0usize;
     let mut in_string = false;
-    // PC-1600 patches a constant GOTO/GOSUB/THEN target into a compact binary form
-    // (0x1F [hi] [lo] 0x00) instead of plain ASCII digits; PC-1500 always uses ASCII
-    // digits. Confirmed against real memory dumps of both machines. Set right after
-    // emitting one of those three keywords; consumed (or dropped) by the very next
-    // token.
+    // PC-1600 patches a constant GOTO/GOSUB/THEN/RESUME target into a compact binary
+    // form (0x1F [hi] [lo] 0x00) instead of plain ASCII digits; PC-1500 always uses
+    // ASCII digits. Confirmed against real memory dumps of both machines (RESUME via
+    // "10 RESUME 100" -> ... F2 8D 1F 00 64 00 0D). Set right after emitting one of
+    // those keywords; consumed (or dropped) by the very next token.
     let use_binary_line_number_targets = reg.device() == Device::Pc1600;
     let mut expect_line_number_target = false;
 
@@ -189,7 +189,7 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
                     if kw.code == REM_CODE {
                         content.extend_from_slice(&bytes[i..]);
                         i = bytes.len();
-                    } else if matches!(kw.name, "GOTO" | "GOSUB" | "THEN") {
+                    } else if matches!(kw.name, "GOTO" | "GOSUB" | "THEN" | "RESUME") {
                         expect_line_number_target = true;
                     }
                 }
@@ -275,6 +275,32 @@ mod tests {
     #[test]
     fn unnumbered_lines_dropped() {
         assert_eq!(tok("PRINT 1\n20 END\n"), tok("20 END\n"));
+    }
+
+    fn tok1600(src: &str) -> Vec<u8> {
+        tokenize(src, registry::pc1600(), SegmentMarker::Wire).unwrap()
+    }
+
+    #[test]
+    fn pc1600_binary_line_number_targets() {
+        // Confirmed against real PC-1600 memory dumps: a constant GOTO/GOSUB/THEN/
+        // RESUME target is patched into 0x1F [hi] [lo] 0x00 instead of ASCII digits.
+        // "10 RESUME 100" -> 0A 07 F2 8D 1F 00 64 00 0D
+        assert_eq!(
+            tok1600("10 RESUME 100\n"),
+            vec![0x00, 0x0A, 0x07, 0xF2, 0x8D, 0x1F, 0x00, 0x64, 0x00, 0x0D]
+        );
+        let has_binary_target = |bytes: &[u8]| bytes.windows(4).any(|w| w == [0x1F, 0x00, 0x64, 0x00]);
+        assert!(has_binary_target(&tok1600("10 GOTO 100\n")));
+        assert!(has_binary_target(&tok1600("10 GOSUB 100\n")));
+        assert!(has_binary_target(&tok1600("10 IF 1 THEN 100\n")));
+    }
+
+    #[test]
+    fn pc1500_never_uses_binary_line_number_targets() {
+        // The PC-1500 always uses plain ASCII digits, even for the same keywords.
+        assert!(!tok("10 RESUME 100\n").contains(&0x1F));
+        assert!(!tok("10 GOTO 100\n").contains(&0x1F));
     }
 
     #[test]
