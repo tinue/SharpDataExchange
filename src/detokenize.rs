@@ -1,5 +1,5 @@
-//! Tokenized payload bytes -> normalized ASCII BASIC listing, ported from Java
-//! `BinaryBasicDetokenizer` (which mirrors the ROM `LIST` walk).
+//! Tokenized payload bytes -> normalized ASCII BASIC listing, modelled on the ROM
+//! `LIST` walk.
 //!
 //! Output is *normalized*, not the original source: `<lineNo><space>` then, for each
 //! keyword, its full name plus exactly one trailing space and no leading space; literal
@@ -83,8 +83,7 @@ pub fn detokenize(payload: &[u8], reg: &Registry) -> Result<Vec<String>> {
                 // 0x1F [lineNum hi] [lineNum lo] 0x00: the compact binary line-number
                 // target the PC-1600 patches in for a constant GOTO/GOSUB/THEN target
                 // (confirmed against real PC-1600 memory dumps; the PC-1500 always
-                // uses plain ASCII digits instead). Ported from Java
-                // `BinaryBasicDetokenizer`.
+                // uses plain ASCII digits instead).
                 let target = ((payload[pos + 1] as u16) << 8) | payload[pos + 2] as u16;
                 s.push_str(&target.to_string());
                 pos += 4;

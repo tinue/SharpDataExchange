@@ -1,6 +1,6 @@
-//! `get` orchestration, per `requirements-put-get.md` §4. Receives a transfer from the
-//! Pocket Computer and writes it to a file — or, under `--dry-run`, still performs the
-//! real receive but skips the filesystem write.
+//! `get` orchestration. Receives a transfer from the Pocket Computer and writes it to a
+//! file — or, under `--dry-run`, still performs the real receive but skips the
+//! filesystem write.
 
 use std::time::Duration;
 

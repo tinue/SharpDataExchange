@@ -1,4 +1,4 @@
-//! ASCII BASIC listing decode / normalization, ported from Java `io/SharpText`.
+//! ASCII BASIC listing decode / normalization.
 
 /// Decode a `.bas` file's bytes to text: strict UTF-8 first, else CP437. Then normalize
 /// line endings (CRLF / CR -> LF) and strip any trailing `0x1A` (SUB / DOS EOF) markers.

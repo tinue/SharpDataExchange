@@ -100,10 +100,10 @@ Wiring (pin 1 is the rightmost pin of the PC-1600's 15-pin connector):
 
 Do not connect the red (5V) wire of the adapter.
 
-> **Apple Silicon Macs:** the Java sister project's docs warn of a macOS RTS/CTS
-> driver bug that causes data loss when sending to a real PC-1600, recommending a
-> workaround (run on a Raspberry Pi over SSH instead). Testing `sde` against a
-> real PC-1600 on Apple Silicon (M4 Pro) with an FTDI adapter found no such
+> **Apple Silicon Macs:** other pocket-computer serial tooling documents a macOS
+> RTS/CTS driver bug that causes data loss when sending to a real PC-1600,
+> recommending a workaround (run on a Raspberry Pi over SSH instead). Testing `sde`
+> against a real PC-1600 on Apple Silicon (M4 Pro) with an FTDI adapter found no such
 > issue — repeated `put`/`get` transfers, with and without unplugging the cable
 > between runs, completed cleanly every time. If you do hit dropped/corrupted
 > data on a real PC-1600 over `--device pc1600`, treat it as a genuine bug worth
@@ -220,8 +220,8 @@ input/output files.
 ### Scope: BASIC and machine language only
 
 `get`/`put` handle **BASIC programs and machine-language (assembly) programs**.
-Reserve Area and Variables transfer (supported by the Java tool on PC-1500/1500A)
-are not implemented here — see [Scope / Known Limitations](#scope--known-limitations).
+Reserve Area and Variables transfer are not implemented here — see
+[Scope / Known Limitations](#scope--known-limitations).
 
 ### Verbosity: `-v` / `-q` / config default
 
@@ -518,9 +518,9 @@ unmodified). Machine language is *always* saved as raw binary regardless of
 
 ### Reserve Area / Variables — not implemented
 
-The Java sister project supports Reserve Area (`CSAVEr`/`CLOADr`, SDAR format)
-and Variables (SDAV format) transfer on the PC-1500/1500A. `sde` does not
-implement either — see [Scope / Known Limitations](#scope--known-limitations).
+Reserve Area (`CSAVEr`/`CLOADr`, SDAR format) and Variables (SDAV format) transfer
+on the PC-1500/1500A are not implemented by `sde` — see
+[Scope / Known Limitations](#scope--known-limitations).
 
 ---
 
@@ -659,8 +659,7 @@ transfer) for **BASIC and machine-language programs only**, and `config`
 Not implemented:
 
 - **Reserve Area** (`CSAVEr`/`CLOADr`, SDAR format) and **Variables** (SDAV
-  format) transfer — PC-1500/1500A-only features in the Java tool, not ported
-  here.
+  format) transfer — PC-1500/1500A-only features, not implemented here.
 - **`terminal`** mode (interactive passive serial session) — unrelated to
   `get`/`put`, not ported.
 - **`--add-utils`** (serial utility BASIC sub-program injection on `put`) — not
@@ -676,10 +675,10 @@ Not implemented:
 - Windows serial-port auto-detection is not implemented; always pass `--port`
   there.
 
-The one known `convert` fixture difference from the Java tool is the CE-158
-header *filename* field casing — the Java code upper-cases it, a historical
-fixture stored it lower-case; `testsuite.md` marks those header bytes "don't
-care". Payloads match exactly.
+The one known `convert` fixture difference is the CE-158 header *filename* field
+casing — `sde` upper-cases it, while a historical fixture stored it lower-case; the
+byte-parity test compares those header bytes separately from the rest and treats them
+as "don't care". Payloads match exactly.
 
 ---
 
@@ -701,9 +700,9 @@ python3 tools/extract_keywords.py --check    # CI drift check (also a cargo test
 
 `get`/`put`'s serial transport, config file, and pacing/receive logic are unit
 tested against an in-memory transport double (no real hardware needed to run
-`cargo test`); actual serial-port behavior, port auto-detection, and real
-device transfers still need manual/hardware verification — see
-`requirements-put-get.md` for the full requirements this was built against.
+`cargo test`). Manually verified: real serial transfers against a real PC-1600 on
+macOS, and port auto-detection on macOS. Still untested: real PC-1500/CE-158
+transfers, and port auto-detection on Windows and Linux.
 
 Releases are cut with [`bin/release`](bin/release); see the comment header in
 that script and [`CHANGELOG.md`](CHANGELOG.md).

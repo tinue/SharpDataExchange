@@ -26,7 +26,7 @@ jobs:
         continue-on-error: true
 
   # NB: the keyword-table drift check (tools/extract_keywords.py --check) needs the
-  # Java `SharpBasicShared` checkout beside this repo, so it stays a local step —
+  # `SharpBasicShared` checkout beside this repo, so it stays a local step —
   # see README.md — and is not run here.
 
   test:

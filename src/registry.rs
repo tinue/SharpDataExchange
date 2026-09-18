@@ -1,9 +1,9 @@
-//! Device-scoped keyword registry, ported from Java `KeywordRegistry`.
+//! Device-scoped keyword registry.
 //!
 //! Two vocabularies: PC-1500 family and PC-1600 family. Each is built from a static
-//! pool (`keywords::PC1500_SET` / `PC1600_SET`) already in Java `KeywordRegistry`
-//! pool order, so inserting in slice order with "later wins" reproduces the Java
-//! `HashMap.put` name/code lookup semantics on collisions.
+//! pool (`keywords::PC1500_SET` / `PC1600_SET`) already in the intended lookup order,
+//! so inserting in slice order with "later wins" reproduces the correct name/code
+//! lookup semantics on collisions.
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,8 +16,8 @@ pub enum Device {
     Pc1600,
 }
 
-/// `REM` token, hard-coded in both directions exactly as the Java encoder/decoder do
-/// (`0xF1AB` in both the PC-1500 and PC-1600 tables).
+/// `REM` token, hard-coded in both directions (`0xF1AB` in both the PC-1500 and
+/// PC-1600 tables).
 pub const REM_CODE: u16 = 0xF1AB;
 
 pub struct Registry {

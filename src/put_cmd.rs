@@ -1,6 +1,6 @@
-//! `put` orchestration, per `requirements-put-get.md` §3/§5. Reads a file, resolves the
-//! effective device, builds the exact byte sequence to transmit, and sends it — or,
-//! under `--dry-run`, reports what would have been sent without opening the port.
+//! `put` orchestration. Reads a file, resolves the effective device, builds the exact
+//! byte sequence to transmit, and sends it — or, under `--dry-run`, reports what would
+//! have been sent without opening the port.
 
 use anyhow::{bail, Context, Result};
 

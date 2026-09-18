@@ -1,4 +1,4 @@
-//! `-v`/`-q`/config-file verbosity precedence, per `requirements-put-get.md` §7a.
+//! `-v`/`-q`/config-file verbosity precedence.
 //!
 //! `-v`/`--verbose` and `-q`/`--quiet` are mutually exclusive on the command line
 //! (enforced by clap's `conflicts_with` at the CLI layer); this module resolves the

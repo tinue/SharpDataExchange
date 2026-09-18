@@ -1,4 +1,4 @@
-//! Serial transport abstraction for `get`/`put`, per `requirements-put-get.md` §2.
+//! Serial transport abstraction for `get`/`put`.
 //!
 //! [`Transport`] is implemented by [`RealSerial`] (backed by the `serialport` crate),
 //! [`PtySerial`] (a plain file descriptor, for `pc1600emul`'s pseudo-terminal — see its

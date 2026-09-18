@@ -14,9 +14,9 @@ Source of truth:
     <SharpBasicShared>/sharp-basic-core/src/main/java/ch/erzberger/sharpbasic/core/keyword/
         device/{Pc1500,Ce150,Ce158,Pc1600}Keywords.java
 
-The two emitted pools follow Java `KeywordRegistry` pool order exactly, so a Rust
-`Registry` that inserts them in slice order and lets later inserts win reproduces the
-Java name/code lookup semantics:
+The two emitted pools preserve the source keyword tables' pool order exactly, so a
+Rust `Registry` that inserts them in slice order and lets later inserts win reproduces
+the intended name/code lookup semantics:
     PC1500_SET = Pc1500 ++ Ce150 ++ Ce158           (forPc1500(): {PC1500, CE150, CE158})
     PC1600_SET = Ce150 ++ Ce158 ++ Pc1600           (forPc1600(): {CE150, CE158, PC1600})
 """
@@ -137,8 +137,8 @@ def build() -> str:
 //   sharp-basic-core/.../keyword/device/{{Pc1500,Ce150,Ce158,Pc1600}}Keywords.java
 // Regenerate: python3 tools/extract_keywords.py
 //
-// Pool order matches Java `KeywordRegistry` so that inserting in slice order with
-// "later wins" reproduces its name/code lookup:
+// Pool order is significant: inserting in slice order with "later wins" reproduces
+// the intended name/code lookup:
 //   PC1500_SET = Pc1500 ++ Ce150 ++ Ce158
 //   PC1600_SET = Ce150 ++ Ce158 ++ Pc1600
 
@@ -175,12 +175,12 @@ pub struct Keyword {{
         [
             emit_slice(
                 "PC1500_SET",
-                "PC-1500 family pool (PC-1500 core + CE-150 + CE-158), Java pool order.",
+                "PC-1500 family pool (PC-1500 core + CE-150 + CE-158), in lookup order.",
                 pc1500_set,
             ),
             emit_slice(
                 "PC1600_SET",
-                "PC-1600 family pool (CE-150 + CE-158 + PC-1600), Java pool order.",
+                "PC-1600 family pool (CE-150 + CE-158 + PC-1600), in lookup order.",
                 pc1600_set,
             ),
         ]

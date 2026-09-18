@@ -1,5 +1,5 @@
-// @generated data (CP437 <-> char), matches Java Charset.forName("Cp437").
-// Regenerate: see tools/ (python3: bytes(range(256)).decode('cp437')).
+// @generated data (CP437 <-> char), the standard IBM code page 437 mapping.
+// Regenerate: python3 -c "print(bytes(range(256)).decode('cp437'))".
 
 /// byte -> Unicode scalar. Total function over 0x00..=0xFF.
 pub static TO_CHAR: [char; 256] = [

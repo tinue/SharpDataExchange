@@ -1,4 +1,4 @@
-//! Shared filename helpers for `get`/`put`, per `requirements-put-get.md` §3/§4.
+//! Shared filename helpers for `get`/`put`.
 
 use std::path::Path;
 

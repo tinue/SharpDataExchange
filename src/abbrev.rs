@@ -1,6 +1,5 @@
 //! Dotted keyword-abbreviation expansion (`P.` -> `PRINT`, `GOS.` -> `GOSUB`,
-//! `INSTATT.` -> `INSTAT` + `THEN`). Faithful port of Java
-//! `preprocess/AbbreviationExpander`, run per line before the scanner.
+//! `INSTATT.` -> `INSTAT` + `THEN`), run per line before the scanner.
 //!
 //! No expansion happens inside string literals, after `REM`, or after `'` (the `REM`
 //! shorthand). The PC-1600 registry defines no abbreviations, so this is a no-op there.
@@ -131,8 +130,8 @@ mod tests {
     }
 
     #[test]
-    fn rem_comment_mode_matches_java_is_rem_start() {
-        // Java's isRemStart only fires when REM is preceded by a digit or ':' (no space),
+    fn rem_comment_mode_boundary() {
+        // REM-comment mode only fires when REM is preceded by a digit or ':' (no space),
         // so `10 REM P.` (space after the line number) still expands the abbreviation...
         assert_eq!(ex("10 REM P. here"), "10 REM PRINT here");
         // ...but `10:REM P.` (colon right before REM) enters comment mode and is verbatim.

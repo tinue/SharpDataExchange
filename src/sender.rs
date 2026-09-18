@@ -1,5 +1,4 @@
-//! `put`'s paced/unpaced transmit logic, per `requirements-put-get.md` §5. Mirrors Java
-//! `DataSender`.
+//! `put`'s paced/unpaced transmit logic.
 
 use std::time::Duration;
 

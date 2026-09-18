@@ -1,5 +1,4 @@
-//! Byte-for-byte fidelity against the checked-in fixtures produced by the Java
-//! `SharpDataExchange` `convert` verb.
+//! Byte-for-byte fidelity against the checked-in reference `convert` fixtures.
 
 use std::path::Path;
 
@@ -11,10 +10,10 @@ fn fixture(name: &str) -> Vec<u8> {
         .unwrap_or_else(|e| panic!("read fixture {name}: {e}"))
 }
 
-/// Offsets of the CE-158 filename field (16 bytes at 0x05). The current Java
-/// `deriveFilename` upper-cases the basename; the historical fixture stored it
-/// lower-case. `testsuite.md` marks these header bytes "don't care", so the parity
-/// check compares everything else exactly and the filename separately.
+/// Offsets of the CE-158 filename field (16 bytes at 0x05). `sde` upper-cases the
+/// basename; the historical fixture stored it lower-case, so these bytes are "don't
+/// care" here and the parity check compares everything else exactly and the filename
+/// separately.
 const CE158_NAME: std::ops::Range<usize> = 5..21;
 
 #[test]
@@ -29,7 +28,7 @@ fn depreciation_pc1500_matches_ce158_fixture() {
     // Header, everything but the filename field: byte-identical.
     assert_eq!(&out[0..CE158_NAME.start], &want[0..CE158_NAME.start], "header magic/type/COM");
     assert_eq!(&out[CE158_NAME.end..27], &want[CE158_NAME.end..27], "load/length/autorun");
-    // Filename: current Java behaviour (upper-cased, NUL-padded).
+    // Filename: current `sde` behaviour (upper-cased, NUL-padded).
     assert_eq!(&out[CE158_NAME], b"DEPRECIATION\0\0\0\0");
 }
 

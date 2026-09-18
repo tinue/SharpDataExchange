@@ -1,5 +1,5 @@
-//! Content-type detection, ported from Java `detect/ContentDetector`. `convert` chooses
-//! its direction from this, never from the file name.
+//! Content-type detection. `convert` chooses its direction from this, never from the
+//! file name.
 
 use crate::header::{self, FileType};
 use crate::registry::Device;

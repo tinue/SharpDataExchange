@@ -1,12 +1,12 @@
 //! `sde` — SharpDataExchange: PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer plus
 //! `get`/`put` serial transfer.
 //!
-//! `sde convert [options] <infile> [<outfile>]` mirrors the `convert` verb of the Java
-//! `SharpDataExchange`. Direction is chosen from file content, not the name.
-//! With no `<infile>` and data on stdin, reads stdin and writes stdout.
+//! `sde convert [options] <infile> [<outfile>]` tokenizes/de-tokenizes a BASIC listing.
+//! Direction is chosen from file content, not the name. With no `<infile>` and data on
+//! stdin, reads stdin and writes stdout.
 //!
 //! `sde get`/`sde put` transfer BASIC or machine-language data to/from a real Pocket
-//! Computer over serial; see `requirements-put-get.md` in the repo root.
+//! Computer over serial.
 
 use std::io::{Read, Write};
 

@@ -1,6 +1,5 @@
 //! CE-158 / PC-1600 serial file headers that wrap a tokenized BASIC or machine-language
-//! payload. Ported from Java `header/Ce158Header`, `header/Pc1600Header` and
-//! `SharpDataExchange.findHeaderOffset` / `SerialHeader.expectedTotalBytes`.
+//! payload.
 
 use crate::cp437;
 use crate::registry::Device;
@@ -10,9 +9,9 @@ const PC1600_LEN: usize = 16;
 
 /// The payload type recorded in a header. Reserve Area and Variables headers exist on
 /// the wire (CE-158 type chars `'A'` / `'H'`) but are intentionally not recognized here
-/// — out of scope for `get`/`put` per `requirements-put-get.md` §3/§9. Whether the
-/// PC-1600 protocol has equivalent header types at all is *unresearched*, not confirmed
-/// absent (see requirements §3) — this enum simply doesn't model them either way.
+/// — out of scope for `get`/`put`. Whether the PC-1600 protocol has equivalent header
+/// types at all is *unresearched*, not confirmed absent — this enum simply doesn't
+/// model them either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileType {
     Basic,
@@ -49,8 +48,8 @@ impl ParsedHeader {
 /// (e.g. stray `0x00` bytes) before the magic. Returns the first match whose type byte
 /// is recognized (`Basic` or `Machine`); a header with an out-of-scope type (Reserve,
 /// Variables, or anything else unrecognized) is treated as not found and scanning does
-/// not continue past it — mirrors the Java behavior of `expectedTotalBytes`, which stops
-/// at the first magic match rather than searching for a second, later one.
+/// not continue past it — it stops at the first magic match rather than searching for a
+/// second, later one.
 pub fn find(data: &[u8]) -> Option<ParsedHeader> {
     for i in 0..data.len() {
         // CE-158: 0x01, <type>, "COM"
@@ -162,8 +161,8 @@ fn le24(data: &[u8], at: usize) -> u32 {
 ///   as Reserve/Variables, whose length field would be meaningless anyway);
 /// - a header's magic was found but there aren't yet enough bytes to read it fully.
 ///
-/// Mirrors Java `SerialHeader.expectedTotalBytes`: it stops at the first magic match
-/// rather than continuing to scan for a second one once bytes are insufficient.
+/// It stops at the first magic match rather than continuing to scan for a second one
+/// once bytes are insufficient.
 pub fn expected_total_bytes(data: &[u8]) -> Option<usize> {
     for i in 0..data.len() {
         if data[i] == 0x01 && data.get(i + 2..i + 5) == Some(b"COM") {
@@ -275,8 +274,7 @@ fn build_pc1600(spec: BuildHeader) -> Vec<u8> {
     }
 
     // 0x0E..0x10 end-of-header marker. Confirmed against a real PC-1600 capture
-    // (ff 10 00 00 21 ... 00 0f) and matches current Java `Pc1600Header.getHeader()`,
-    // which appends {0x00, 0x0F} here.
+    // (ff 10 00 00 21 ... 00 0f), which ends with {0x00, 0x0F} here.
     h[14] = 0x00;
     h[15] = 0x0F;
     h

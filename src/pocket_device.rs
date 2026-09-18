@@ -1,4 +1,4 @@
-//! The four `get`/`put` transport targets, per `requirements-put-get.md` §2.
+//! The four `get`/`put` transport targets.
 //!
 //! This is a strict superset of [`crate::registry::Device`]: the pure tokenizer/header
 //! core only needs to know "CE-158 flavor" vs. "PC-1600 flavor" (`registry::Device`),

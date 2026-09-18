@@ -1,6 +1,5 @@
-//! `get`'s receive/accumulate/end-of-transfer logic, per `requirements-put-get.md` §4.
-//! Mirrors Java `DataReceiver`/`Watchdog`, but as a plain deadline check rather than a
-//! background thread — Rust's synchronous poll-read loop doesn't need one.
+//! `get`'s receive/accumulate/end-of-transfer logic, as a plain deadline check rather
+//! than a background thread — Rust's synchronous poll-read loop doesn't need one.
 
 use std::time::{Duration, Instant};
 

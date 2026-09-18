@@ -1,9 +1,8 @@
 //! Sharp PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer.
 //!
-//! ROM-style linear scanner (no grammar), reproducing the offline `convert` verb of the
-//! Java `SharpDataExchange`. The pure core (`convert`, `scanner`, `detokenize`, `detect`,
-//! `header`) has no file I/O and is shared by the CLI (`src/main.rs`) and the C ABI
-//! (`ffi`).
+//! ROM-style linear scanner (no grammar) for the offline `convert` verb. The pure core
+//! (`convert`, `scanner`, `detokenize`, `detect`, `header`) has no file I/O and is shared
+//! by the CLI (`src/main.rs`) and the C ABI (`ffi`).
 
 pub mod cp437;
 pub mod detect;

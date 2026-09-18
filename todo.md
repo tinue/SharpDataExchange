@@ -13,8 +13,8 @@
 The ROM does not store a list of valid abbreviations. It stores an **ordered list of
 keywords per initial letter** and matches greedily: `P.` resolves to whatever the first
 `P*` entry in that list is (`PRINT`), because the table is ordered so the intended
-keyword comes first. Our port currently relies on the explicit `abbrev` field extracted
-from the Java sources; replace that with ROM-order-driven resolution.
+keyword comes first. This currently relies on the explicit `abbrev` field extracted from
+the upstream keyword tables; replace that with ROM-order-driven resolution.
 
 Research needed:
 - **a) What is the keyword order?** Recover the per-letter ordering of the PC-1500 ROM
@@ -27,8 +27,9 @@ Research needed:
 
 ## 3. PC-1600 abbreviations + keyword ordering
 
-The Java `Pc1600Keywords.java` defines no abbreviations ("not documented in the
-manuals"), so our PC-1600 path currently expands nothing. But the PC-1600 **does**
+`Pc1600Keywords.java` (the upstream keyword source) defines no abbreviations ("not
+documented in the manuals"), so our PC-1600 path currently expands nothing. But the
+PC-1600 **does**
 support abbreviations. Same research as item 2, for the PC-1600:
 - Recover the PC-1600 keyword table order (no PC-1600 ROM source in the corpus — needs a
   PC-1600 ROM dump / PockEmul, or hardware observation).

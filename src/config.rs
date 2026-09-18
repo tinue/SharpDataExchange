@@ -1,4 +1,4 @@
-//! Per-user config file for `get`/`put` defaults, per `requirements-put-get.md` §2a.
+//! Per-user config file for `get`/`put` defaults.
 //!
 //! Modeled on `git config --global`, but simpler: a single optional dotfile
 //! (`~/.sderc`, or `%USERPROFILE%\.sderc` on Windows) holding `key = value` lines.
