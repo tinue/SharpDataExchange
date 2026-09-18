@@ -18,7 +18,8 @@
 #   bin/release --release  # 2. only once step 1's CI is green: promote to the real
 #                           #    "vX.Y.Z" release, verify it published correctly
 #   bin/release --next     # 3. only once step 2 is verified: cut "dev-X.Y.(Z+1)" from
-#                           #    main, bump manifests, open a "- WIP" CHANGELOG section
+#                           #    main (or "dev-X.Y.Z" via --version), bump manifests,
+#                           #    open a "- WIP" CHANGELOG section
 #
 # Stop and report rather than retrying if any step fails — see each mode's
 # pre-conditions below; some of these steps aren't safe to blindly re-run once
@@ -56,9 +57,11 @@
 #
 #   4. Start the next cycle (from main: cut "dev-X.Y.(Z+1)", bump Cargo.toml,
 #      open a new "## [X.Y.(Z+1)] - WIP" CHANGELOG section, commit, push):
-#        bin/release --next
-#      Pre-condition: "dev-X.Y.(Z+1)" must not already exist locally or on origin.
-#      Always a plain patch bump of whatever version is on main's Cargo.toml.
+#        bin/release --next [--version X.Y.Z]
+#      Pre-condition: "dev-X.Y.(Z+1)" (or "dev-X.Y.Z" with --version) must not
+#      already exist locally or on origin.
+#      Default (no --version): a plain patch bump of whatever version is on
+#      main's Cargo.toml.
 #
 # Append --dry-run to any invocation to preview state-changing actions.
 #
@@ -87,14 +90,18 @@ DO_BUILD_ONLY=false
 DO_RELEASE=false
 DO_NEXT=false
 DRY_RUN=false
+NEXT_VERSION_OVERRIDE=""
 
-for arg in "$@"; do
-    case "$arg" in
-        --build-only) DO_BUILD_ONLY=true ;;
-        --release)    DO_RELEASE=true ;;
-        --next)       DO_NEXT=true ;;
-        --dry-run)    DRY_RUN=true ;;
-        *) echo "Unknown argument: $arg"; exit 1 ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --build-only) DO_BUILD_ONLY=true; shift ;;
+        --release)    DO_RELEASE=true; shift ;;
+        --next)       DO_NEXT=true; shift ;;
+        --dry-run)    DRY_RUN=true; shift ;;
+        --version)
+            [ $# -ge 2 ] || { echo "Error: --version needs an argument"; exit 1; }
+            NEXT_VERSION_OVERRIDE="$2"; shift 2 ;;
+        *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
 
@@ -104,6 +111,10 @@ $DO_RELEASE    && MODE_COUNT=$((MODE_COUNT + 1))
 $DO_NEXT       && MODE_COUNT=$((MODE_COUNT + 1))
 if [ "$MODE_COUNT" -gt 1 ]; then
     echo "Error: --build-only, --release, and --next are mutually exclusive."
+    exit 1
+fi
+if [ -n "$NEXT_VERSION_OVERRIDE" ] && ! $DO_NEXT; then
+    echo "Error: --version only makes sense together with --next."
     exit 1
 fi
 
@@ -206,8 +217,12 @@ if $DO_NEXT; then
     else
         CUR_VERSION=$(grep -m 1 '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
     fi
-    IFS=. read -r NEXT_MAJ NEXT_MIN NEXT_PAT <<< "$CUR_VERSION"
-    NEXT_VERSION="$NEXT_MAJ.$NEXT_MIN.$((NEXT_PAT + 1))"
+    if [ -n "$NEXT_VERSION_OVERRIDE" ]; then
+        NEXT_VERSION="$NEXT_VERSION_OVERRIDE"
+    else
+        IFS=. read -r NEXT_MAJ NEXT_MIN NEXT_PAT <<< "$CUR_VERSION"
+        NEXT_VERSION="$NEXT_MAJ.$NEXT_MIN.$((NEXT_PAT + 1))"
+    fi
     NEXT_BRANCH="dev-$NEXT_VERSION"
 
     if git show-ref --verify --quiet "refs/heads/$NEXT_BRANCH"; then
@@ -246,6 +261,16 @@ if $DO_NEXT; then
             }
         ' "$CHANGELOG" > "$CHANGELOG.tmp"
         mv "$CHANGELOG.tmp" "$CHANGELOG"
+
+        # Verify the insertion actually happened rather than trusting the awk
+        # silently no-op'd (e.g. if "## [Unreleased]" was ever renamed/removed) --
+        # catch that here instead of leaving a version-bumped branch with no
+        # matching CHANGELOG section for a later `bin/release` to reject.
+        if ! grep -qF "## [$NEXT_VERSION] - WIP" "$CHANGELOG"; then
+            echo "Error: failed to insert '## [$NEXT_VERSION] - WIP' into $CHANGELOG"
+            echo "  (the '## [Unreleased]' marker it inserts after may be missing)."
+            exit 1
+        fi
     fi
 
     run_cmd git add Cargo.toml Cargo.lock "$CHANGELOG"
@@ -334,7 +359,7 @@ if $DO_RELEASE; then
     echo "Squash-merging $CURRENT_BRANCH into ${MAIN_BRANCH}…"
     run_cmd git fetch origin "$MAIN_BRANCH" --quiet
     run_cmd git checkout "$MAIN_BRANCH"
-    run_cmd git merge --ff-only "origin/$MAIN_BRANCH" || true
+    run_cmd git merge --ff-only "origin/$MAIN_BRANCH"
     run_cmd git merge --squash "$CURRENT_BRANCH"
     run_cmd git commit -m "$COMMIT_MSG"
     run_cmd git push origin "$MAIN_BRANCH"
