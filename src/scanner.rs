@@ -118,8 +118,12 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
     // "10 RESUME 100" -> ... F2 8D 1F 00 64 00 0D). `ON x GOTO/GOSUB n` needs no
     // separate handling: the target directly follows GOTO/GOSUB, already in this
     // list, so it's covered the same way (confirmed: "10 ON A GOSUB 100" -> ...
-    // F1 9C 41 F1 94 1F 00 64 00 0D). Set right after emitting one of these
-    // keywords; consumed (or dropped) by the very next token.
+    // F1 9C 41 F1 94 1F 00 64 00 0D). A comma-separated `ON` target list re-arms
+    // this after every target, since each one is binary-encoded in turn (confirmed:
+    // "10 ON A GOSUB 10,20,30" -> ... 1F 00 0A 00 2C 1F 00 14 00 2C 1F 00 1E 00 0D).
+    // Set right after emitting one of these keywords; consumed (or dropped) by the
+    // very next token, except a comma immediately following an encoded target,
+    // which re-arms it for the next target in the list.
     let use_binary_line_number_targets = reg.device() == Device::Pc1600;
     let mut expect_line_number_target = false;
 
@@ -156,12 +160,23 @@ fn scan_line(rest: &str, reg: &Registry) -> Vec<u8> {
                     content.push(0x1F);
                     content.extend_from_slice(&(target as u16).to_be_bytes());
                     content.push(0x00);
+                    // A comma right after this (an ON target list) starts another
+                    // target; re-arm so it gets binary-encoded too.
+                    expect_line_number_target = true;
                     continue;
                 }
             }
             // Not a plain 16-bit line number after all (e.g. overflowed): fall back
             // to emitting the digits as plain CP437 bytes.
             content.extend_from_slice(&bytes[start..i]);
+            continue;
+        }
+
+        if was_expecting_line_number_target && b == b',' {
+            // Comma between ON-list targets: keep it, and stay armed for the next one.
+            content.push(b);
+            i += 1;
+            expect_line_number_target = true;
             continue;
         }
 
@@ -315,6 +330,25 @@ mod tests {
         assert!(has_binary_target(&tok1600("10 GOTO 100\n")));
         assert!(has_binary_target(&tok1600("10 GOSUB 100\n")));
         assert!(has_binary_target(&tok1600("10 IF 1 THEN 100\n")));
+    }
+
+    #[test]
+    fn pc1600_on_gosub_list_binary_encodes_every_target() {
+        // Confirmed against a real PC-1600 memory dump: "10 ON A GOSUB 10,20,30" ->
+        // 0A 14 F1 9C 41 F1 94 1F 00 0A 00 2C 1F 00 14 00 2C 1F 00 1E 00 0D -- every
+        // comma-separated target is binary-encoded, not just the first.
+        let bytes = tok1600("10 ON A GOSUB 10,20,30\n");
+        assert_eq!(
+            bytes,
+            vec![
+                0x00, 0x0A, 0x14, 0xF1, 0x9C, 0x41, 0xF1, 0x94, 0x1F, 0x00, 0x0A, 0x00, 0x2C, 0x1F,
+                0x00, 0x14, 0x00, 0x2C, 0x1F, 0x00, 0x1E, 0x00, 0x0D
+            ]
+        );
+        // Round-trips back through the detokenizer too (which decodes 0x1F markers
+        // generically, with no knowledge of which keyword or comma preceded them).
+        let lines = crate::detokenize::detokenize(&bytes, registry::pc1600()).unwrap();
+        assert_eq!(lines, vec!["10 ON AGOSUB 10,20,30".to_string()]);
     }
 
     #[test]
