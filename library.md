@@ -191,7 +191,7 @@ module target. See [`examples/embed_swift.swift`](examples/embed_swift.swift).
 
 ```toml
 [dependencies]
-sharpdx = { git = "https://github.com/…/SharpDataExchangeRust", default-features = false }
+sharpdx = { git = "https://github.com/tinue/SharpDataExchange", default-features = false }
 ```
 
 `default-features = false` drops the `cli` feature (the `sde` binary's `clap`) and

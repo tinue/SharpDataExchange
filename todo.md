@@ -39,7 +39,7 @@ support abbreviations. Same research as item 2, for the PC-1600:
 
 - [ ] PC-1600 ROM dump using the Rust version; once successful, update the PC-1600 ROM
       repository.
-- [ ] Archive/rename the SharpDataExchange project; rename SharpDataExchangeRust to
+- [x] Archive/rename the SharpDataExchange project; rename SharpDataExchangeRust to
       SharpDataExchange.
 - [ ] Full test with PC-1500, including reserve area and variables.
 - [ ] Load assembly programs on both PC-1600 and PC-1500.
