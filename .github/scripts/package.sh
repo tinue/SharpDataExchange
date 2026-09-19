@@ -64,8 +64,9 @@ case "$MATRIX_NAME" in
     # build-step logs stay readable, but that also colors this note with
     # ANSI escapes even though stderr here is redirected to a file, not a
     # tty -- which would corrupt the captured list with a trailing "\e[0m".
+    # --no-default-features: must match the serial-free lib build in release.yml.
     if ! CARGO_TERM_COLOR=never cargo rustc --release --target "$primary" --lib --crate-type staticlib \
-        -- --print=native-static-libs 2> "$stage/lib/.native-libs-raw.txt"; then
+        --no-default-features -- --print=native-static-libs 2> "$stage/lib/.native-libs-raw.txt"; then
       echo "package.sh: cargo rustc --print=native-static-libs failed:" >&2
       cat "$stage/lib/.native-libs-raw.txt" >&2
       exit 1

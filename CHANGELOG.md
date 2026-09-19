@@ -13,6 +13,17 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.2.1] - WIP
 
+### Changed
+
+- The libraries in release archives (`lib/`) are now built without the serial
+  transport, so embedders no longer link `serialport` or, on Windows, its extra
+  import libs (e.g. `windows.0.52.0.lib`). The C ABI is unchanged.
+- New Cargo features: `serial` (`get`/`put` transport) and `cli` (the `sde`
+  binary, implies `serial`), both on by default. Build a serial-free lib with
+  `cargo build --release --lib --no-default-features`.
+- Windows arm64 release builds now run natively on an arm64 runner and run the
+  test suite before packaging.
+
 ## [0.2.0] - 2026-09-18
 
 ### Added

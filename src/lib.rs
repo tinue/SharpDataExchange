@@ -32,14 +32,19 @@ pub mod config;
 /// CLI-only: `-v`/`-q`/config-file verbosity precedence, shared by `get`/`put`.
 pub mod verbosity;
 /// CLI-only: serial transport abstraction (`get`/`put`), real and in-memory.
+#[cfg(feature = "serial")]
 pub mod serial;
 /// CLI-only: receive/accumulate/end-of-transfer logic for `get`.
+#[cfg(feature = "serial")]
 pub mod receiver;
 /// CLI-only: paced/unpaced transmit logic for `put`.
+#[cfg(feature = "serial")]
 pub mod sender;
 /// CLI-only: `get` orchestration.
+#[cfg(feature = "serial")]
 pub mod get_cmd;
 /// CLI-only: `put` orchestration.
+#[cfg(feature = "serial")]
 pub mod put_cmd;
 
 pub mod ffi;

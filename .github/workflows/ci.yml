@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
     steps:
       - uses: actions/checkout@v5
       - name: Install libudev (Linux serial-port support)
@@ -47,6 +47,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --all-targets
       - run: cargo test --workspace
+      # The serial-free lib that release archives ship (see release.yml).
+      - run: cargo test --workspace --no-default-features
 
   cross-build:
     name: cross build (${{ matrix.target }})
@@ -59,7 +61,7 @@ jobs:
           - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
-          - { os: windows-latest, target: aarch64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v5
       - name: Install libudev (Linux serial-port support)
