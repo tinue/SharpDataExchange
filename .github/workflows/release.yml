@@ -42,18 +42,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x86_64
-            os: ubuntu-22.04
-            targets: x86_64-unknown-linux-gnu
-            archive: sharpdx-linux-x86_64.tar.gz
-          - name: linux-aarch64
-            os: ubuntu-22.04-arm
-            targets: aarch64-unknown-linux-gnu
-            archive: sharpdx-linux-aarch64.tar.gz
-          - name: windows-x86_64
-            os: windows-latest
-            targets: x86_64-pc-windows-msvc
-            archive: sharpdx-windows-x86_64.zip
           - name: windows-aarch64
             os: windows-11-arm
             targets: aarch64-pc-windows-msvc
@@ -104,6 +92,7 @@ jobs:
           if-no-files-found: error
 
   build-macos:
+    if: false  # TEMP: windows-aarch64 trial run
     name: build macos-arm64 (signed + .pkg)
     runs-on: macos-latest
     steps:
@@ -243,6 +232,7 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
 
   publish:
+    if: false  # TEMP: windows-aarch64 trial run
     name: publish release
     needs: [build, build-macos]
     runs-on: ubuntu-latest
