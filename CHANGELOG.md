@@ -11,6 +11,22 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-19
+
+### Changed
+
+- The libraries in release archives (`lib/`) are now built without the serial
+  transport, so embedders no longer link `serialport` or, on Windows, its extra
+  import libs (e.g. `windows.0.52.0.lib`). The C ABI is unchanged.
+- New Cargo features: `serial` (`get`/`put` transport) and `cli` (the `sde`
+  binary, implies `serial`), both on by default. Build a serial-free lib with
+  `cargo build --release --lib --no-default-features`.
+- Windows arm64 release builds now run natively on an arm64 runner and run the
+  test suite before packaging.
+- The GitHub repository is now `tinue/SharpDataExchange` (formerly
+  `SharpDataExchangeRust`; old URLs redirect). Release, changelog and
+  `library.md` links point to the new name.
+
 ## [0.2.0] - 2026-09-18
 
 ### Added
@@ -178,11 +194,12 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.5...v0.2.0
-[0.1.5]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/tinue/SharpDataExchangeRust/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/tinue/SharpDataExchangeRust/releases/tag/v0.1.0
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tinue/SharpDataExchange/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/tinue/SharpDataExchange/compare/v0.1.5...v0.2.0
+[0.1.5]: https://github.com/tinue/SharpDataExchange/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/tinue/SharpDataExchange/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/tinue/SharpDataExchange/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/tinue/SharpDataExchange/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/tinue/SharpDataExchange/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/tinue/SharpDataExchange/releases/tag/v0.1.0

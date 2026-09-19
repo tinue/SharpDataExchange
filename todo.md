@@ -3,8 +3,8 @@
 ## 1. Release-scaffolding loose ends
 
 - `CHANGELOG.md` compare/tag links still say `OWNER` — change to `tinue`.
-- Native Linux arm64 runners (`ubuntu-22.04-arm` / `ubuntu-24.04-arm`) are used;
-  fall back to cross-compilation if those labels are ever unavailable.
+- Native arm64 runners (`ubuntu-22.04-arm` / `ubuntu-24.04-arm` / `windows-11-arm`)
+  are used; fall back to cross-compilation if those labels are ever unavailable.
 - `Swatinem/rust-cache@v2` still triggers a Node 20 deprecation warning; revisit
   when a Node 24 major ships.
 
@@ -39,7 +39,7 @@ support abbreviations. Same research as item 2, for the PC-1600:
 
 - [ ] PC-1600 ROM dump using the Rust version; once successful, update the PC-1600 ROM
       repository.
-- [ ] Archive/rename the SharpDataExchange project; rename SharpDataExchangeRust to
+- [x] Archive/rename the SharpDataExchange project; rename SharpDataExchangeRust to
       SharpDataExchange.
 - [ ] Full test with PC-1500, including reserve area and variables.
 - [ ] Load assembly programs on both PC-1600 and PC-1500.

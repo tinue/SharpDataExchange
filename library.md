@@ -41,6 +41,10 @@ The macOS archive is Apple Silicon (`arm64`) only; its `sde` and
 runtime). A signed, notarized, stapled `.pkg` installer is published alongside it
 — see the main [README](README.md#on-macos).
 
+The libraries in `lib/` are built without the serial transport (`sde get`/`put`),
+which the C ABI never exposes, so they carry no `serialport` dependency. To build
+the same lib from source: `cargo build --release --lib --no-default-features`.
+
 ## C ABI contract
 
 Every entry point:
@@ -187,8 +191,12 @@ module target. See [`examples/embed_swift.swift`](examples/embed_swift.swift).
 
 ```toml
 [dependencies]
-sharpdx = { git = "https://github.com/…/SharpDataExchangeRust" }
+sharpdx = { git = "https://github.com/tinue/SharpDataExchange", default-features = false }
 ```
+
+`default-features = false` drops the `cli` feature (the `sde` binary's `clap`) and
+the `serial` feature (the `get`/`put` transport modules and `serialport`); enable
+`features = ["serial"]` if you want those modules.
 
 The pure core is safe Rust — no need to go through the C ABI:
 

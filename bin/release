@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Release script for SharpDataExchangeRust.
+# Release script for SharpDataExchange.
 #
 # Unlike a local build, the actual cross-platform artifacts are produced by
 # .github/workflows/release.yml. This script's job is to run the local checks and
@@ -74,7 +74,7 @@ set -euo pipefail
 
 CHANGELOG="CHANGELOG.md"
 MAIN_BRANCH="main"
-REPO_URL="https://github.com/tinue/SharpDataExchangeRust"
+REPO_URL="https://github.com/tinue/SharpDataExchange"
 
 VERSION=$(grep -m 1 '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "${VERSION:-}" ]; then

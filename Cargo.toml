@@ -1,6 +1,6 @@
 [package]
 name = "sharpdx"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "ROM-style Sharp PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer (convert-verb parity)"
 authors = ["Martin Erzberger <martin@erzberger.ch>"]
@@ -15,12 +15,22 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 [[bin]]
 name = "sde"
 path = "src/main.rs"
+required-features = ["cli"]
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-serialport = "4"
-libc = "0.2"
+clap = { version = "4", features = ["derive"], optional = true }
+serialport = { version = "4", optional = true }
+libc = { version = "0.2", optional = true }
+
+# The C ABI (`ffi`) never touches serial, so embedders (e.g. Calc-U-1600) build with
+# `--no-default-features --lib` and skip `serialport` and its Windows import-lib baggage.
+[features]
+default = ["cli"]
+# The `sde` binary: `get`/`put` over serial plus the argument parser.
+cli = ["serial", "dep:clap"]
+# `get`/`put` serial transport modules.
+serial = ["dep:serialport", "dep:libc"]
 
 [build-dependencies]
 cbindgen = "0.27"

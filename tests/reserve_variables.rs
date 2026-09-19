@@ -3,6 +3,8 @@
 //! `get_cmd::process_normal`, and that ASCII text re-encodes via
 //! `put_cmd::build_put_bytes` back to byte-identical bytes.
 
+#![cfg(feature = "serial")]
+
 use sharpdx::header::{self, BuildHeader, FileType};
 use sharpdx::pocket_device::PocketDevice;
 use sharpdx::put_cmd::PutOptions;
