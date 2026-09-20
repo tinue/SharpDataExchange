@@ -28,6 +28,8 @@ pub struct PutOptions {
     pub raw: bool,
     pub dry_run: bool,
     pub verbose: bool,
+    /// `--flowcontrol`: enable RTS/CTS handshaking (PC-1600 family only).
+    pub flow_control: bool,
     pub input_file: String,
 }
 
@@ -191,6 +193,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     }
 
     let device = resolve_effective_device(opts.device, header.as_ref())?;
+    device.check_flow_control(opts.flow_control)?;
     crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
     // §5's last bullet: an explicit `--format ascii` on headerless ASCII BASIC input
@@ -241,14 +244,20 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device)?;
-    send(&mut transport, device, header_len, &bytes)?;
+    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
+    send(&mut transport, device, header_len, &bytes, opts.flow_control)?;
 
     Ok(format!("Sent {} bytes to {port_name} ({device})", bytes.len()))
 }
 
-fn send<T: Transport>(transport: &mut T, device: PocketDevice, header_len: usize, bytes: &[u8]) -> Result<()> {
-    sender::send_data(transport, device, header_len, bytes)
+fn send<T: Transport>(
+    transport: &mut T,
+    device: PocketDevice,
+    header_len: usize,
+    bytes: &[u8],
+    flow_control: bool,
+) -> Result<()> {
+    sender::send_data(transport, device, header_len, bytes, flow_control)
 }
 
 /// Line-by-line ASCII send for headerless ASCII BASIC input, when `--format ascii` is
@@ -274,8 +283,8 @@ fn run_put_ascii_lines(
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device)?;
-    sender::send_ascii_lines(&mut transport, device, &lines)?;
+    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
+    sender::send_ascii_lines(&mut transport, device, &lines, opts.flow_control)?;
 
     Ok(format!("Sent {} ASCII lines to {port_name} ({device})", lines.len()))
 }
@@ -294,6 +303,7 @@ mod tests {
             run_address: None,
             raw: false,
             dry_run: false,
+            flow_control: false,
             verbose: false,
             input_file: input_file.to_string(),
         }

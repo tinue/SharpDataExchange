@@ -11,6 +11,31 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-20
+
+### Added
+
+- `--flowcontrol` option for `get` and `put` (`pc1600` / `pc1600emul` only)
+  enables RTS/CTS hardware flow control. On `pc1600emul` it is a best-effort
+  attempt that probably has no effect.
+
+### Changed
+
+- `pc1600` no longer uses RTS/CTS flow control by default and paces the transfer
+  like `pc1600emul`, which avoids the frequent `ERROR 142`. On the PC-1600 use
+  `RCVSTAT "COM1:",28` and `SNDSTAT "COM1:",28` (was `24`); with `--flowcontrol`,
+  keep `24` (only `RCVSTAT` matters for `put`).
+- Hardware notes (adapter photos, serial cable and flow-control hints) moved into
+  `docs/HardwareNotes.md`, linked from the README; the Apple Silicon RTS/CTS note
+  and its Raspberry Pi workaround are gone, as RTS/CTS is no longer the default.
+
+### Fixed
+
+- `get --raw` on a headerless capture (e.g. a ROM dump) no longer drops 16 bytes
+  when the data happens to contain the PC-1600 header magic `FF 10 00 00`. A
+  header is now only recognized at the start of the received data (optionally
+  after `0x00` noise), for both `--raw` and normal `get`.
+
 ## [0.2.1] - 2026-09-19
 
 ### Changed
@@ -194,7 +219,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/tinue/SharpDataExchange/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tinue/SharpDataExchange/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tinue/SharpDataExchange/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/tinue/SharpDataExchange/compare/v0.1.4...v0.1.5

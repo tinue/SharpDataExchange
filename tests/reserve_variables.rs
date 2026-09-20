@@ -20,6 +20,7 @@ fn put_opts(input_file: &str) -> PutOptions {
         run_address: None,
         raw: false,
         dry_run: false,
+        flow_control: false,
         verbose: false,
         input_file: input_file.to_string(),
     }

@@ -71,6 +71,9 @@ cargo build --release
 
 ## Hardware Setup
 
+Photos and build notes (adapter board, wiring, CE-158X) are in
+[`docs/HardwareNotes.md`](docs/HardwareNotes.md).
+
 ### PC-1500 / PC-1500A: CE-158X
 
 The PC-1500 and PC-1500A do not have a built-in serial port. The original Sharp
@@ -99,15 +102,6 @@ Wiring (pin 1 is the rightmost pin of the PC-1600's 15-pin connector):
 | 7 | Ground | Ground (black) |
 
 Do not connect the red (5V) wire of the adapter.
-
-> **Apple Silicon Macs:** other pocket-computer serial tooling documents a macOS
-> RTS/CTS driver bug that causes data loss when sending to a real PC-1600,
-> recommending a workaround (run on a Raspberry Pi over SSH instead). Testing `sde`
-> against a real PC-1600 on Apple Silicon (M4 Pro) with an FTDI adapter found no such
-> issue — repeated `put`/`get` transfers, with and without unplugging the cable
-> between runs, completed cleanly every time. If you do hit dropped/corrupted
-> data on a real PC-1600 over `--device pc1600`, treat it as a genuine bug worth
-> reporting rather than an expected limitation.
 
 ### Serial Port Auto-Detection
 
@@ -142,9 +136,10 @@ If you never set this, the default directory is `/tmp`, so
 `--device pc1600emul` with no `--port` and no config resolves to
 `/tmp/calcu1600.serial` out of the box.
 
-`pc1600emul` sends the same data as `pc1600` but drops RTS/CTS hardware flow
-control (a pseudo-terminal has no handshake lines) and paces the transfer like
-the PC-1500.
+`pc1600emul` sends the same data as `pc1600` and, like `pc1600` by default, uses
+no RTS/CTS hardware flow control and paces the transfer like the PC-1500. A
+pseudo-terminal has no handshake lines, so `--flowcontrol` (see below) is only a
+best-effort attempt there and most likely has no effect.
 
 ---
 
@@ -289,6 +284,7 @@ BASIC, `.bin` for machine language).
 |---|---|
 | `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Configures baud rate and flow control before data arrives; decoding uses the device recorded in the received header when one is found, so an incorrect `--device` doesn't corrupt the output content — only the transport timing. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted; see [Serial Port Auto-Detection](#serial-port-auto-detection)). |
+| `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; RTS is used while receiving). Off by default, which is the safe choice: the host is fast enough that nothing is lost without it. See [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `binary`. `ascii` on machine-language content is rejected — machine language can't be de-tokenized, so pass `--format binary` for it. |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). The resulting file can't be auto-identified or reloaded by `sde` without it — a warning is printed. |
 | `--raw` | Dump the received bytes verbatim, with no header/content detection at all. Requires an output file. See below. |
@@ -324,6 +320,7 @@ detected from the file's bytes, never its name.
 |---|---|
 | `-d`, `--device <device>` | Target device. Optional if the file already carries a recognized header — the device is then inferred from it (an explicit `--device` of the wrong *family* is an error; if the header is PC-1600 and neither `pc1600` nor `pc1600emul` is given, that's ambiguous and also an error — `sde` doesn't guess). Without a header and without `--device`, defaults to `pc1500`. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted). |
+| `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; CTS is used while sending). Off by default: a `pc1600` transfer is then paced byte-by-byte like `pc1600emul`. With it, a real `pc1600` is sent unpaced and the handshake throttles the transfer. Only try this if `put` fails with `ERROR 142`, and set `RCVSTAT "COM1:",24` on the PC-1600 to match; see [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | For headerless ASCII BASIC input: `binary` (default when omitted) tokenizes it before sending; `ascii` sends it line-by-line, untokenized (slower; mirrors the device's `CLOADa`/ASCII load). Has no effect on machine language (always sent as raw binary) or on input that already has a header (always sent as-is). |
 | `--start-address <hex>` | Load address for a **headerless** machine-language input (e.g. `38C5` or `0x38C5`). Required to send headerless machine code — see below. |
 | `--run-address <hex>` | Auto-run address for a headerless machine-language input; requires `--start-address`. Defaults to `0xFFFF` (no auto-run) if `--start-address` is given without it. |
@@ -445,17 +442,23 @@ for the full syntax.
 SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
-RCVSTAT "COM1:",24
+RCVSTAT "COM1:",28
 ```
 
 For sending **from** the PC-1600 to the PC, additionally enter:
 
 ```
-SNDSTAT "COM1:",24
+SNDSTAT "COM1:",28
 ```
 
 These configure the port at 9600 baud, 8 data bits, no parity, 1 stop bit, with
-RTS/CTS hardware flow control, and a 4096-byte buffer.
+RTS/CTS flow control **disabled**, and a 4096-byte buffer. This is the default:
+`sde` paces the transfer itself.
+
+Hardware handshaking is optional. To use it, pass `--flowcontrol` to `sde get`/
+`sde put` and use `24` instead of `28` in `RCVSTAT` (for `put`) or `SNDSTAT`
+(for `get`). The settings must match: a PC-1600 set to `24` while `sde` runs
+without `--flowcontrol` can end in `ERROR 142`.
 
 #### Receive a program from the PC (`put`)
 
@@ -481,8 +484,8 @@ SAVE "COM1:"
 | `SETCOM "COM1:",<baud>,<bits>,<parity>,<stop>,<xon>,<shift>` | Configure baud rate and protocol. |
 | `INIT "COM1:",<buffer-size>` | Set receive buffer size (default after power-on is 40 bytes). |
 | `OUTSTAT "COM1:"` | Enable dynamic RTS/DTR flow control. |
-| `RCVSTAT "COM1:",<protocol>[,<timeout>]` | Receive handshake/timeout; `24` enables CTS handshake. |
-| `SNDSTAT "COM1:",<protocol>[,<timeout>]` | Send handshake/timeout; `24` enables CTS, `28` disables all flow control. |
+| `RCVSTAT "COM1:",<protocol>[,<timeout>]` | Receive handshake/timeout; `28` disables flow control (default for `sde`), `24` enables RTS/CTS (needs `--flowcontrol`). |
+| `SNDSTAT "COM1:",<protocol>[,<timeout>]` | Send handshake/timeout; `28` disables flow control (default for `sde`), `24` enables RTS/CTS (needs `--flowcontrol`). |
 | `SETDEV "COM1:"[,KI][,PO]` | Redirect `INPUT`/`LPRINT`/`LLIST` to the serial port. |
 | `PCONSOLE "COM1:",<line-length>,<eol>` | Line length and EOL (`0`=CR, `1`=LF, `2`=CR/LF) for serial output. |
 
@@ -711,8 +714,16 @@ Re-enter the full setup sequence on the PC-1600:
 SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
-RCVSTAT "COM1:",24
+RCVSTAT "COM1:",28
 ```
+
+**`ERROR 142` on the PC-1600**
+This is an RTS/CTS handshake error, typically on `put`. By default `sde` uses no
+flow control, which means `RCVSTAT "COM1:",28` (and `SNDSTAT "COM1:",28`) on the
+PC-1600. If you still get `ERROR 142` on `put`, you can *try* enabling flow
+control: pass `--flowcontrol` to `sde put` and switch `RCVSTAT` on the PC-1600 to
+`RCVSTAT "COM1:",24`. This depends on your USB adapter and wiring and may not
+work.
 
 ---
 

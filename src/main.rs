@@ -55,7 +55,7 @@ enum Command {
     Get {
         /// Output file. If omitted, derived from the serial header (or `unnamed`).
         output_file: Option<String>,
-        /// Target device: determines baud rate and flow control.
+        /// Target device: determines baud rate.
         #[arg(short, long, value_enum, default_value_t = DeviceArg::Pc1500)]
         device: DeviceArg,
         /// Serial port name (auto-detected if omitted).
@@ -75,6 +75,11 @@ enum Command {
         /// would have been written and where.
         #[arg(long)]
         dry_run: bool,
+        /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on
+        /// `get`, CTS on `put`. Off by default; with it, a real PC-1600 is sent to
+        /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
+        #[arg(long)]
+        flowcontrol: bool,
         /// Narrate every non-obvious decision made along the way.
         #[arg(short, long, conflicts_with = "quiet")]
         verbose: bool,
@@ -109,6 +114,11 @@ enum Command {
         /// Report what would be sent, without opening the serial port.
         #[arg(long)]
         dry_run: bool,
+        /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on
+        /// `get`, CTS on `put`. Off by default; with it, a real PC-1600 is sent to
+        /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
+        #[arg(long)]
+        flowcontrol: bool,
         /// Narrate every non-obvious decision made along the way.
         #[arg(short, long, conflicts_with = "quiet")]
         verbose: bool,
@@ -244,7 +254,7 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Get { output_file, device, port, format, skip_header, raw, dry_run, verbose, quiet } => {
+        Command::Get { output_file, device, port, format, skip_header, raw, dry_run, flowcontrol, verbose, quiet } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
             let opts = GetOptions {
@@ -255,6 +265,7 @@ fn run() -> Result<()> {
                 raw,
                 dry_run,
                 verbose: verbosity,
+                flow_control: flowcontrol,
                 output_file,
             };
             let msg = get_cmd::run_get(&opts, &config)?;
@@ -262,7 +273,7 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Put { input_file, device, port, format, start_address, run_address, raw, dry_run, verbose, quiet } => {
+        Command::Put { input_file, device, port, format, start_address, run_address, raw, dry_run, flowcontrol, verbose, quiet } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
             let opts = PutOptions {
@@ -274,6 +285,7 @@ fn run() -> Result<()> {
                 raw,
                 dry_run,
                 verbose: verbosity,
+                flow_control: flowcontrol,
                 input_file,
             };
             let msg = put_cmd::run_put(&opts, &config)?;

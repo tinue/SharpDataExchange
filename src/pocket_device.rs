@@ -31,16 +31,33 @@ impl PocketDevice {
         self == Self::Pc1600Emul
     }
 
-    /// True when the physical link provides RTS/CTS handshake lines (real PC-1600 only).
-    pub fn has_hardware_flow_control(self) -> bool {
-        self == Self::Pc1600
+    /// True when `--flowcontrol` can be requested for this device: the PC-1600 family
+    /// (the CE-158 used with the PC-1500 family has no handshake lines at all).
+    pub fn supports_flow_control(self) -> bool {
+        self.is_pc1600_family()
     }
 
-    /// True when the sender must pace bytes itself because nothing throttles it:
-    /// the PC-1500 family (CE-158 has no handshake) and the emulator (pseudo-terminal
-    /// has no handshake lines either).
-    pub fn is_paced_send(self) -> bool {
-        self.is_pc1500_family() || self.is_emulator()
+    /// Reject `--flowcontrol` for devices without handshake lines.
+    pub fn check_flow_control(self, flow_control: bool) -> anyhow::Result<()> {
+        if flow_control && !self.supports_flow_control() {
+            anyhow::bail!("--flowcontrol is only supported for --device pc1600 and pc1600emul");
+        }
+        Ok(())
+    }
+
+    /// True when the OS-level serial port is opened with RTS/CTS handshaking: only when
+    /// `--flowcontrol` was given, and never for the PC-1500 family. (On the emulator's
+    /// pseudo-terminal this is a best-effort attempt that will probably have no effect.)
+    pub fn uses_hardware_flow_control(self, flow_control: bool) -> bool {
+        flow_control && self.supports_flow_control()
+    }
+
+    /// True when the sender must pace bytes itself because nothing reliably throttles
+    /// it: the PC-1500 family (CE-158 has no handshake), the emulator (pseudo-terminal
+    /// has no working handshake lines), and a real PC-1600 unless `--flowcontrol` hands
+    /// throttling to RTS/CTS.
+    pub fn is_paced_send(self, flow_control: bool) -> bool {
+        !(self == Self::Pc1600 && flow_control)
     }
 
     pub fn baud_rate(self) -> u32 {
@@ -107,8 +124,8 @@ mod tests {
             assert!(d.is_pc1500_family());
             assert!(!d.is_pc1600_family());
             assert!(!d.is_emulator());
-            assert!(!d.has_hardware_flow_control());
-            assert!(d.is_paced_send());
+            assert!(!d.uses_hardware_flow_control(true));
+            assert!(d.is_paced_send(true));
             assert_eq!(d.baud_rate(), 19200);
             assert_eq!(d.idle_timeout_ms(), 5000);
             assert_eq!(d.to_registry_device(), Device::Pc1500);
@@ -121,8 +138,10 @@ mod tests {
         let d = PocketDevice::Pc1600;
         assert!(d.is_pc1600_family());
         assert!(!d.is_emulator());
-        assert!(d.has_hardware_flow_control());
-        assert!(!d.is_paced_send());
+        assert!(!d.uses_hardware_flow_control(false));
+        assert!(d.is_paced_send(false));
+        assert!(d.uses_hardware_flow_control(true));
+        assert!(!d.is_paced_send(true));
         assert_eq!(d.baud_rate(), 9600);
         assert_eq!(d.idle_timeout_ms(), 500);
         assert_eq!(d.to_registry_device(), Device::Pc1600);
@@ -134,8 +153,10 @@ mod tests {
         let d = PocketDevice::Pc1600Emul;
         assert!(d.is_pc1600_family());
         assert!(d.is_emulator());
-        assert!(!d.has_hardware_flow_control());
-        assert!(d.is_paced_send());
+        assert!(!d.uses_hardware_flow_control(false));
+        assert!(d.uses_hardware_flow_control(true));
+        assert!(d.is_paced_send(false));
+        assert!(d.is_paced_send(true));
         assert_eq!(d.baud_rate(), 9600);
         assert_eq!(d.idle_timeout_ms(), 500);
         assert_eq!(d.to_registry_device(), Device::Pc1600);
