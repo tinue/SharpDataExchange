@@ -13,6 +13,19 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.2.2] - WIP
 
+### Added
+
+- `--flowcontrol` option for `get` and `put` (`pc1600` / `pc1600emul` only)
+  enables RTS/CTS hardware flow control. On `pc1600emul` it is a best-effort
+  attempt that probably has no effect.
+
+### Changed
+
+- `pc1600` no longer uses RTS/CTS flow control by default and paces the transfer
+  like `pc1600emul`, which avoids the frequent `ERROR 142`. On the PC-1600 use
+  `RCVSTAT "COM1:",28` and `SNDSTAT "COM1:",28` (was `24`); with `--flowcontrol`,
+  keep `24` (only `RCVSTAT` matters for `put`).
+
 ## [0.2.1] - 2026-09-19
 
 ### Changed

@@ -14,16 +14,18 @@ const DRAIN_TIMEOUT: Duration = Duration::from_millis(2000);
 
 /// Send a fully-formed data block (`header_len` leading bytes are the header, if any;
 /// `header_len == 0` for a headerless send, e.g. `--raw`). Paced devices (PC-1500
-/// family, PC-1600 emulator) send the header at full speed, pause, then send the
-/// payload byte-by-byte with a 1ms delay; a real PC-1600 (hardware RTS/CTS) sends
-/// everything at full speed and relies on the handshake to throttle it.
+/// family, PC-1600 emulator, and PC-1600 by default) send the header at full speed,
+/// pause, then send the payload byte-by-byte with a 1ms delay; a real PC-1600 with
+/// `--flowcontrol` (`flow_control`) sends everything at full speed and relies on the
+/// RTS/CTS handshake to throttle it.
 pub fn send_data<T: Transport>(
     transport: &mut T,
     device: PocketDevice,
     header_len: usize,
     data: &[u8],
+    flow_control: bool,
 ) -> Result<()> {
-    if device.is_paced_send() {
+    if device.is_paced_send(flow_control) {
         let header = &data[..header_len.min(data.len())];
         let payload = &data[header_len.min(data.len())..];
 
@@ -58,6 +60,7 @@ pub fn send_ascii_lines<T: Transport>(
     transport: &mut T,
     device: PocketDevice,
     lines: &[String],
+    flow_control: bool,
 ) -> Result<()> {
     for line in lines {
         let mut bytes = crate::cp437::encode_lossy(line);
@@ -66,7 +69,7 @@ pub fn send_ascii_lines<T: Transport>(
             bytes.push(0x0A);
         }
         transport.write_all(&bytes)?;
-        if device.is_paced_send() {
+        if device.is_paced_send(flow_control) {
             transport.sleep(TAIL_PAUSE);
         }
     }
@@ -86,7 +89,7 @@ mod tests {
     fn plain_pc1500_send_paces_header_then_payload() {
         let mut t = FakeSerial::new();
         let data = [0xAAu8, 0xBB, 0x01, 0x02, 0x03];
-        send_data(&mut t, PocketDevice::Pc1500, 2, &data).unwrap();
+        send_data(&mut t, PocketDevice::Pc1500, 2, &data, false).unwrap();
         assert_eq!(t.written, data);
         // header write, then 1 sleep per payload byte + header pause + tail pause.
         assert_eq!(t.sleeps[0], HEADER_PAUSE);
@@ -96,10 +99,19 @@ mod tests {
     }
 
     #[test]
-    fn real_pc1600_send_is_unpaced_no_sleeps() {
+    fn real_pc1600_default_send_is_paced() {
+        let mut t = FakeSerial::new();
+        let data = [1u8, 2];
+        send_data(&mut t, PocketDevice::Pc1600, 0, &data, false).unwrap();
+        assert_eq!(t.written, data);
+        assert_eq!(t.sleeps, vec![HEADER_PAUSE, BYTE_DELAY, BYTE_DELAY, TAIL_PAUSE]);
+    }
+
+    #[test]
+    fn real_pc1600_flowcontrol_send_is_unpaced_no_sleeps() {
         let mut t = FakeSerial::new();
         let data = [1u8, 2, 3, 4];
-        send_data(&mut t, PocketDevice::Pc1600, 0, &data).unwrap();
+        send_data(&mut t, PocketDevice::Pc1600, 0, &data, true).unwrap();
         assert_eq!(t.written, data);
         assert!(t.sleeps.is_empty());
         assert_eq!(t.drains, 1);
@@ -110,7 +122,7 @@ mod tests {
         let mut t = FakeSerial::new();
         // header_len=0 for simplicity; payload contains what used to be a segment marker.
         let payload = [0x01u8, 0x02, 0xFF, 0x00, 0x00, 0x03];
-        send_data(&mut t, PocketDevice::Pc1600Emul, 0, &payload).unwrap();
+        send_data(&mut t, PocketDevice::Pc1600Emul, 0, &payload, false).unwrap();
         assert_eq!(t.written, payload);
         // header pause, then one BYTE_DELAY sleep per payload byte, no extra pauses.
         assert_eq!(
@@ -132,12 +144,12 @@ mod tests {
     fn ascii_lines_pace_and_terminate_per_family() {
         let mut t = FakeSerial::new();
         let lines = vec!["10 PRINT".to_string(), "20 END".to_string()];
-        send_ascii_lines(&mut t, PocketDevice::Pc1500, &lines).unwrap();
+        send_ascii_lines(&mut t, PocketDevice::Pc1500, &lines, false).unwrap();
         assert_eq!(t.written, b"10 PRINT\r20 END\r\r");
         assert_eq!(t.sleeps, vec![TAIL_PAUSE, TAIL_PAUSE, TAIL_PAUSE]);
 
         let mut t = FakeSerial::new();
-        send_ascii_lines(&mut t, PocketDevice::Pc1600, &lines).unwrap();
+        send_ascii_lines(&mut t, PocketDevice::Pc1600, &lines, true).unwrap();
         assert_eq!(t.written, b"10 PRINT\r\n20 END\r\n\x1A");
         // real PC-1600 is not paced: no per-line sleeps, but the trailing tail pause
         // after the EOF marker still applies (drain/tail-pause happen unconditionally).

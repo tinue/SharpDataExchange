@@ -40,12 +40,12 @@ pub struct RealSerial {
 impl RealSerial {
     /// Open `port_name` configured for `device` (baud rate + flow control per the
     /// device table in requirements §2): 8 data bits, no parity, 1 stop bit, hardware
-    /// flow control iff `device.has_hardware_flow_control()`. On Unix, no exclusive
+    /// flow control iff `device.uses_hardware_flow_control(flow_control)`. On Unix, no exclusive
     /// lock (so a peer that already holds the port open doesn't make the open fail);
     /// Windows has no non-exclusive open mode for `serialport`, so this is skipped
     /// there and every open is exclusive.
-    pub fn open(port_name: &str, device: PocketDevice) -> Result<RealSerial> {
-        let flow = if device.has_hardware_flow_control() {
+    pub fn open(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<RealSerial> {
+        let flow = if device.uses_hardware_flow_control(flow_control) {
             serialport::FlowControl::Hardware
         } else {
             serialport::FlowControl::None
@@ -165,7 +165,7 @@ pub struct PtySerial {
 
 #[cfg(unix)]
 impl PtySerial {
-    pub fn open(path: &str) -> Result<PtySerial> {
+    pub fn open(path: &str, flow_control: bool) -> Result<PtySerial> {
         use std::os::unix::io::AsRawFd;
 
         let file = std::fs::OpenOptions::new()
@@ -194,6 +194,14 @@ impl PtySerial {
         unsafe { libc::cfmakeraw(&mut termios) };
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
             bail!("tcsetattr failed on pty {path}: {}", std::io::Error::last_os_error());
+        }
+
+        // `--flowcontrol`: best-effort attempt to enable RTS/CTS handshaking. A pty
+        // has no modem-control lines, so the kernel may ignore or reject this; either
+        // way it is not an error (the paced send path still applies).
+        if flow_control {
+            termios.c_cflag |= libc::CRTSCTS;
+            let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
         }
 
         Ok(PtySerial { file })
@@ -246,13 +254,13 @@ pub enum RealTransport {
 }
 
 impl RealTransport {
-    pub fn open(port_name: &str, device: PocketDevice) -> Result<RealTransport> {
+    pub fn open(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<RealTransport> {
         #[cfg(unix)]
         if device.is_emulator() {
-            return Ok(RealTransport::Pty(PtySerial::open(port_name)?));
+            return Ok(RealTransport::Pty(PtySerial::open(port_name, flow_control)?));
         }
         let _ = device.is_emulator(); // silence unused-on-non-unix warnings
-        Ok(RealTransport::Serial(RealSerial::open(port_name, device)?))
+        Ok(RealTransport::Serial(RealSerial::open(port_name, device, flow_control)?))
     }
 }
 

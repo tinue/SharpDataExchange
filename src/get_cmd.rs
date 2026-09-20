@@ -29,6 +29,8 @@ pub struct GetOptions {
     pub raw: bool,
     pub dry_run: bool,
     pub verbose: bool,
+    /// `--flowcontrol`: enable RTS/CTS handshaking (PC-1600 family only).
+    pub flow_control: bool,
     pub output_file: Option<String>,
 }
 
@@ -47,9 +49,10 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
         bail!("--raw requires an explicit output file");
     }
 
+    opts.device.check_flow_control(opts.flow_control)?;
     let port_name = serial::resolve_port(opts.device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, opts.device)?;
+    let mut transport = RealTransport::open(&port_name, opts.device, opts.flow_control)?;
     let idle_timeout = Duration::from_millis(opts.device.idle_timeout_ms());
     let raw = receiver::receive_until_done(&mut transport, idle_timeout, opts.raw)?;
     crate::verbosity::narrate(opts.verbose, format!("Received {} bytes", raw.len()));
@@ -222,6 +225,7 @@ mod tests {
             skip_header: false,
             raw: false,
             dry_run: false,
+            flow_control: false,
             verbose: false,
             output_file: None,
         }
