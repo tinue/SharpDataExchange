@@ -71,6 +71,9 @@ cargo build --release
 
 ## Hardware Setup
 
+Photos and build notes (adapter board, wiring, CE-158X) are in
+[`docs/HardwareNotes.md`](docs/HardwareNotes.md).
+
 ### PC-1500 / PC-1500A: CE-158X
 
 The PC-1500 and PC-1500A do not have a built-in serial port. The original Sharp
@@ -99,15 +102,6 @@ Wiring (pin 1 is the rightmost pin of the PC-1600's 15-pin connector):
 | 7 | Ground | Ground (black) |
 
 Do not connect the red (5V) wire of the adapter.
-
-> **Apple Silicon Macs:** other pocket-computer serial tooling documents a macOS
-> RTS/CTS driver bug that causes data loss when sending to a real PC-1600,
-> recommending a workaround (run on a Raspberry Pi over SSH instead). Testing `sde`
-> against a real PC-1600 on Apple Silicon (M4 Pro) with an FTDI adapter found no such
-> issue — repeated `put`/`get` transfers, with and without unplugging the cable
-> between runs, completed cleanly every time. If you do hit dropped/corrupted
-> data on a real PC-1600 over `--device pc1600`, treat it as a genuine bug worth
-> reporting rather than an expected limitation.
 
 ### Serial Port Auto-Detection
 
