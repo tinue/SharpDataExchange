@@ -53,7 +53,9 @@ impl ParsedHeader {
 /// (e.g. stray `0x00` bytes) before the magic. Returns the first match whose type byte
 /// is recognized; a header with an unrecognized type byte is treated as not found and
 /// scanning does not continue past it — it stops at the first magic match rather than
-/// searching for a second, later one.
+/// searching for a second, later one. The header must start the data: only `0x00` noise
+/// may precede it, so a magic-looking sequence inside a headerless payload (e.g. a raw
+/// ROM dump containing `FF 10 00 00`) is not mistaken for one.
 pub fn find(data: &[u8]) -> Option<ParsedHeader> {
     for i in 0..data.len() {
         // CE-158: 0x01, <type>, "COM"
@@ -63,6 +65,9 @@ pub fn find(data: &[u8]) -> Option<ParsedHeader> {
         // PC-1600: FF 10 00 00
         if data.get(i..i + 4) == Some(&[0xFF, 0x10, 0x00, 0x00][..]) {
             return parse_pc1600(data, i);
+        }
+        if data[i] != 0x00 {
+            break;
         }
     }
     None
@@ -352,6 +357,14 @@ mod tests {
         let mut buf = vec![0x00, 0x00, 0x00];
         buf.extend(build(Device::Pc1500, Some("x"), 10));
         assert_eq!(find(&buf).unwrap().offset, 3);
+    }
+
+    #[test]
+    fn find_ignores_magic_inside_headerless_payload() {
+        let mut buf = vec![0xC3, 0xDB, 0x40];
+        buf.extend_from_slice(&[0xFF, 0x10, 0x00, 0x00, 0x21]);
+        buf.extend(std::iter::repeat_n(0u8, 32));
+        assert!(find(&buf).is_none());
     }
 
     #[test]
