@@ -22,13 +22,15 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"], optional = true }
 serialport = { version = "4", optional = true }
 libc = { version = "0.2", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
 # The C ABI (`ffi`) never touches serial, so embedders (e.g. Calc-U-1600) build with
 # `--no-default-features --lib` and skip `serialport` and its Windows import-lib baggage.
 [features]
 default = ["cli"]
-# The `sde` binary: `get`/`put` over serial plus the argument parser.
-cli = ["serial", "dep:clap"]
+# The `sde` binary: `get`/`put` over serial, disk-image verbs, the argument parser and
+# the local clock (disk directory timestamps).
+cli = ["serial", "dep:clap", "dep:chrono"]
 # `get`/`put` serial transport modules.
 serial = ["dep:serialport", "dep:libc"]
 

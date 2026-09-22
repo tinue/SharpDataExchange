@@ -13,6 +13,45 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.2.3] - WIP
 
+### Added
+
+- Files on Calc-U-1600 CE-1600F floppy images (`<name>.floppy.yaml`):
+  `sde dir <image>[:A|:B]` lists a disk, `sde get <image>:<side>:<NAME|pattern>`
+  and `sde put <file>... <image>:<side>:[NAME]` copy files off and onto it with the
+  same conversions as the serial transfer (BASIC tokenized / de-tokenized, text
+  converted, machine code wrapped with `--start-address`), and
+  `sde del <image>:<side>:<NAME|pattern>...` deletes files. `put --force` replaces an
+  existing file. Checked against the PC-1600 ROM in Calc-U-1600: it loads what sde
+  writes, and sde reads what it saves.
+- Plain text (assembler source, config files, …) is a recognized content type:
+  converted between UTF-8 and the Sharp character set with CRLF line ends and a
+  trailing `1A`, for disk images and for serial `get`/`put` on the PC-1600.
+- `get --eol auto|lf|crlf|cr` sets the line ending of a listing or text file.
+- `put -f binary` on input detected as text tokenizes it as a BASIC listing anyway —
+  the override when a listing isn't recognized (C ABI: `SDE_DISK_PUT_MODE_TOKENIZE`).
+- C ABI: `sde_disk_list`, `sde_disk_get`, `sde_disk_put`, `sde_disk_delete` work on
+  one floppy side in memory, with new error codes `SDE_ERR_NOT_FOUND` …
+  `SDE_ERR_DIRECTORY_FULL`. See `library.md`.
+
+### Changed
+
+- `sde_detect` / `sde_convert` report plain text as the new `SDE_CONTENT_TEXT`
+  instead of `SDE_CONTENT_UNKNOWN`.
+- `get` of a headerless ASCII listing now honours `--eol` (default on Windows is
+  therefore CRLF, was LF); a received binary with no recognizable content is saved
+  as `unnamed.bin` instead of `unnamed.bas`.
+
+- Stricter test for ASCII BASIC: a line counts as a listing line only with at most 4
+  leading spaces, a line number, exactly one space or tab, and the statement. A data
+  file starting with a number (e.g. a high-score file `      50        1 MARTIN`) is
+  now text instead of BASIC, so `put` no longer tokenizes it by mistake.
+
+### Fixed
+
+- A short ASCII listing ending in the end-of-file byte `1A` is recognized as BASIC.
+- The `sde_tokenize` calls in `library.md` and `examples/` pass the
+  `segment_marker` argument added in 0.2.2.
+
 ## [0.2.2] - 2026-09-20
 
 ### Added

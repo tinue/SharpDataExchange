@@ -22,6 +22,9 @@ pub const SDE_ERR: i32 = -1;
 pub const SDE_ERR_PANIC: i32 = -2;
 pub const SDE_ERR_ARGS: i32 = -3;
 
+mod disk;
+pub use disk::*;
+
 /// Target machine family.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -38,6 +41,8 @@ pub enum SdeContent {
     AsciiBasic = 1,
     Ce158Basic = 2,
     Pc1600Basic = 3,
+    /// Plain text that is not a BASIC listing (every character in the Sharp set).
+    Text = 4,
 }
 
 /// Line ending for a de-tokenized listing (`sde_detokenize` / `sde_convert`).
@@ -113,6 +118,7 @@ impl From<Content> for SdeContent {
             | Content::Ce158Reserve
             | Content::Ce158Variables
             | Content::Unknown => SdeContent::Unknown,
+            Content::Text => SdeContent::Text,
         }
     }
 }

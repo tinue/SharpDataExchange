@@ -6,7 +6,8 @@
 //! stdin, reads stdin and writes stdout.
 //!
 //! `sde get`/`sde put` transfer BASIC or machine-language data to/from a real Pocket
-//! Computer over serial.
+//! Computer over serial, or to/from a Calc-U-1600 floppy image; `sde dir`/`sde del` list
+//! and delete files on such an image.
 
 use std::io::{Read, Write};
 
@@ -14,10 +15,12 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use sharpdx::config::Config;
+use sharpdx::disk_cmd::{self, DiskGetOptions, DiskPutOptions};
 use sharpdx::get_cmd::{self, GetOptions};
 use sharpdx::pocket_device::PocketDevice;
 use sharpdx::put_cmd::{self, PutOptions};
 use sharpdx::registry::Device;
+use sharpdx::transfer::Format;
 use sharpdx::verbosity::{self, VerbosityFlag};
 use sharpdx::LineEnding;
 
@@ -51,24 +54,33 @@ enum Command {
         verbose: bool,
     },
 
-    /// Receive from the Pocket Computer over serial and write it to a file.
+    /// Receive from the Pocket Computer over serial, or copy a file off a disk image
+    /// (`sde get <image>.floppy.yaml:<A|B>:<NAME.EXT|pattern> [output]`), and write it to
+    /// a file.
     Get {
-        /// Output file. If omitted, derived from the serial header (or `unnamed`).
-        output_file: Option<String>,
-        /// Target device: determines baud rate.
-        #[arg(short, long, value_enum, default_value_t = DeviceArg::Pc1500)]
-        device: DeviceArg,
+        /// Serial: `[output_file]` (derived from the header, or `unnamed`, if omitted).
+        /// Disk image: `<image>:<side>:<name> [output file or directory]`.
+        #[arg(num_args = 0..=2)]
+        args: Vec<String>,
+        /// Target device: determines baud rate (default pc1500). Disk images are PC-1600.
+        #[arg(short, long, value_enum)]
+        device: Option<DeviceArg>,
         /// Serial port name (auto-detected if omitted).
         #[arg(short, long)]
         port: Option<String>,
-        /// Output format. `ascii` on machine-language content is an error.
-        #[arg(short = 'f', long, value_enum, default_value_t = FormatArg::Ascii)]
-        format: FormatArg,
+        /// Output format (serial default: ascii; disk default: per content). `ascii` on
+        /// machine-language content is an error.
+        #[arg(short = 'f', long, value_enum)]
+        format: Option<FormatArg>,
         /// Omit the serial header from the saved binary file (`--format binary` only).
         #[arg(long)]
         skip_header: bool,
-        /// Dump the received bytes verbatim, with no header/content detection at all.
-        /// Requires an output file.
+        /// Line ending for a de-tokenized listing or text file. `auto` = CRLF on
+        /// Windows, LF elsewhere.
+        #[arg(long, value_enum, default_value_t = EolArg::Auto)]
+        eol: EolArg,
+        /// Dump the received bytes verbatim, with no header/content detection at all
+        /// (serial: requires an output file; disk: the file exactly as stored).
         #[arg(long)]
         raw: bool,
         /// Perform the real receive, but don't write the output file — report what
@@ -88,10 +100,13 @@ enum Command {
         quiet: bool,
     },
 
-    /// Read a file and send it to the Pocket Computer over serial.
+    /// Read a file and send it to the Pocket Computer over serial, or store files on a
+    /// disk image (`sde put <file>... <image>.floppy.yaml:<A|B>:[NAME.EXT]`).
     Put {
-        /// Input file to send.
-        input_file: String,
+        /// Serial: the input file. Disk image: input file(s), then the target
+        /// `<image>:<side>:` (optionally with a file name for a single input).
+        #[arg(required = true)]
+        inputs: Vec<String>,
         /// Target device. Optional if the file already carries a recognized header.
         #[arg(short, long, value_enum)]
         device: Option<DeviceArg>,
@@ -107,11 +122,14 @@ enum Command {
         /// Auto-run address for a headerless machine-language input (hex).
         #[arg(long, value_parser = parse_hex_u32, requires = "start_address")]
         run_address: Option<u32>,
-        /// Send a headerless machine-language file exactly as read, even without
-        /// --start-address.
+        /// Send (or store) the file exactly as read: no header, no conversion.
         #[arg(long)]
         raw: bool,
-        /// Report what would be sent, without opening the serial port.
+        /// Disk image: replace an existing file of the same name (even write-protected).
+        #[arg(long)]
+        force: bool,
+        /// Report what would be sent, without opening the serial port or changing the
+        /// disk image.
         #[arg(long)]
         dry_run: bool,
         /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on
@@ -119,6 +137,31 @@ enum Command {
         /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
         #[arg(long)]
         flowcontrol: bool,
+        /// Narrate every non-obvious decision made along the way.
+        #[arg(short, long, conflicts_with = "quiet")]
+        verbose: bool,
+        /// Force narration off, overriding a default-verbose config setting.
+        #[arg(short, long, conflicts_with = "verbose")]
+        quiet: bool,
+    },
+
+    /// List the files on a disk image: `sde dir <image>.floppy.yaml[:A|:B[:pattern]]`.
+    Dir {
+        /// `<image>`, `<image>:<side>` or `<image>:<side>:<pattern>`.
+        target: String,
+    },
+
+    /// Delete files from a disk image: `sde del <image>.floppy.yaml:<A|B>:<NAME.EXT|pattern>...`
+    Del {
+        /// One or more `<image>:<side>:<name or pattern>`.
+        #[arg(required = true)]
+        targets: Vec<String>,
+        /// Delete write-protected files too.
+        #[arg(long)]
+        force: bool,
+        /// Report what would be deleted without changing the image.
+        #[arg(long)]
+        dry_run: bool,
         /// Narrate every non-obvious decision made along the way.
         #[arg(short, long, conflicts_with = "quiet")]
         verbose: bool,
@@ -176,20 +219,11 @@ enum FormatArg {
     Binary,
 }
 
-impl From<FormatArg> for get_cmd::Format {
+impl From<FormatArg> for Format {
     fn from(f: FormatArg) -> Self {
         match f {
-            FormatArg::Ascii => get_cmd::Format::Ascii,
-            FormatArg::Binary => get_cmd::Format::Binary,
-        }
-    }
-}
-
-impl From<FormatArg> for put_cmd::Format {
-    fn from(f: FormatArg) -> Self {
-        match f {
-            FormatArg::Ascii => put_cmd::Format::Ascii,
-            FormatArg::Binary => put_cmd::Format::Binary,
+            FormatArg::Ascii => Format::Ascii,
+            FormatArg::Binary => Format::Binary,
         }
     }
 }
@@ -254,28 +288,72 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Get { output_file, device, port, format, skip_header, raw, dry_run, flowcontrol, verbose, quiet } => {
+        Command::Get { args, device, port, format, skip_header, eol, raw, dry_run, flowcontrol, verbose, quiet } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            if let Some(first) = args.first() {
+                if let Some(addr) = disk_cmd::parse_image_addr(first)? {
+                    check_disk_options(device, port.as_deref(), flowcontrol)?;
+                    let opts = DiskGetOptions {
+                        format: format.map(Into::into),
+                        skip_header,
+                        raw,
+                        eol: eol.into(),
+                        dry_run,
+                        verbose: verbosity,
+                    };
+                    println!("{}", disk_cmd::run_get_disk(first, &addr, args.get(1).map(String::as_str), &opts)?);
+                    return Ok(());
+                }
+            }
+            if args.len() > 1 {
+                bail!("serial get takes at most one output file (for a disk image use <image>.floppy.yaml:<side>:<name>)");
+            }
             let opts = GetOptions {
-                device: device.into(),
+                device: device.unwrap_or(DeviceArg::Pc1500).into(),
                 port,
-                format: format.into(),
+                format: format.unwrap_or(FormatArg::Ascii).into(),
                 skip_header,
+                eol: eol.into(),
                 raw,
                 dry_run,
                 verbose: verbosity,
                 flow_control: flowcontrol,
-                output_file,
+                output_file: args.into_iter().next(),
             };
             let msg = get_cmd::run_get(&opts, &config)?;
             println!("{msg}");
             Ok(())
         }
 
-        Command::Put { input_file, device, port, format, start_address, run_address, raw, dry_run, flowcontrol, verbose, quiet } => {
+        Command::Put { inputs, device, port, format, start_address, run_address, raw, force, dry_run, flowcontrol, verbose, quiet } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            let last = inputs.last().expect("clap requires at least one input");
+            if let Some(addr) = disk_cmd::parse_image_addr(last)? {
+                if inputs.len() < 2 {
+                    bail!("put needs the file(s) to store before the disk image target");
+                }
+                check_disk_options(device, port.as_deref(), flowcontrol)?;
+                let opts = DiskPutOptions {
+                    format: format.map(Into::into),
+                    start_address,
+                    run_address,
+                    raw,
+                    force,
+                    dry_run,
+                    verbose: verbosity,
+                };
+                let files = &inputs[..inputs.len() - 1];
+                println!("{}", disk_cmd::run_put_disk(files, last, &addr, &opts)?);
+                return Ok(());
+            }
+            if inputs.len() > 1 {
+                bail!("serial put sends one file (to store several, end with a disk image target <image>.floppy.yaml:<side>:)");
+            }
+            if force {
+                bail!("--force only applies to disk images");
+            }
             let opts = PutOptions {
                 device: device.map(Into::into),
                 port,
@@ -286,10 +364,22 @@ fn run() -> Result<()> {
                 dry_run,
                 verbose: verbosity,
                 flow_control: flowcontrol,
-                input_file,
+                input_file: inputs.into_iter().next().expect("one input"),
             };
             let msg = put_cmd::run_put(&opts, &config)?;
             println!("{msg}");
+            Ok(())
+        }
+
+        Command::Dir { target } => {
+            println!("{}", disk_cmd::run_dir(&target)?);
+            Ok(())
+        }
+
+        Command::Del { targets, force, dry_run, verbose, quiet } => {
+            let config = Config::load()?;
+            let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            println!("{}", disk_cmd::run_del(&targets, force, dry_run, verbosity)?);
             Ok(())
         }
 
@@ -310,6 +400,17 @@ fn run() -> Result<()> {
             }
         },
     }
+}
+
+/// Disk images are PC-1600 media and involve no serial port.
+fn check_disk_options(device: Option<DeviceArg>, port: Option<&str>, flowcontrol: bool) -> Result<()> {
+    if matches!(device, Some(DeviceArg::Pc1500 | DeviceArg::Pc1500a)) {
+        bail!("disk images are PC-1600 media; --device pc1500/pc1500a does not apply");
+    }
+    if port.is_some() || flowcontrol {
+        bail!("--port and --flowcontrol do not apply to disk images");
+    }
+    Ok(())
 }
 
 fn flag(verbose: bool, quiet: bool) -> VerbosityFlag {

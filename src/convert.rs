@@ -45,6 +45,30 @@ pub fn convert(
     convert_with(input, device, name, with_header, LineEnding::Platform, SegmentMarker::Wire)
 }
 
+/// Tokenize `input` as an ASCII BASIC listing without first detecting its content --
+/// for a caller that knows better than [`crate::detect`] (e.g. `put -f binary` on input
+/// that looked like plain text). A line that is not valid BASIC is an error.
+pub fn tokenize_listing(
+    input: &[u8],
+    device: Device,
+    name: Option<&str>,
+    with_header: bool,
+    segment_marker: SegmentMarker,
+) -> Result<Vec<u8>> {
+    let listing = text::decode_bas_listing(input);
+    text::require_ascii_for_pc1500(&listing, device)?;
+    let reg = Registry::for_device(device);
+    let expanded = expand_all(&listing, reg);
+    let payload = scanner::tokenize(&expanded, reg, segment_marker)?;
+    Ok(if with_header {
+        let mut out = header::build(device, name, payload.len());
+        out.extend_from_slice(&payload);
+        out
+    } else {
+        payload
+    })
+}
+
 /// As [`convert`], but with an explicit [`LineEnding`] for a de-tokenized listing and
 /// an explicit [`SegmentMarker`] style for a `#SEGMENT` line when tokenizing (ignored
 /// when de-tokenizing). When tokenizing, `eol` is unused (`CR` / `CRLF` input is
@@ -60,18 +84,7 @@ pub fn convert_with(
     let content = detect::detect(input);
     match content {
         Content::AsciiBasic => {
-            let listing = text::decode_bas_listing(input);
-            text::require_ascii_for_pc1500(&listing, device)?;
-            let reg = Registry::for_device(device);
-            let expanded = expand_all(&listing, reg);
-            let payload = scanner::tokenize(&expanded, reg, segment_marker)?;
-            let bytes = if with_header {
-                let mut out = header::build(device, name, payload.len());
-                out.extend_from_slice(&payload);
-                out
-            } else {
-                payload
-            };
+            let bytes = tokenize_listing(input, device, name, with_header, segment_marker)?;
             Ok(ConvertOutcome { bytes, content, device })
         }
         Content::Ce158Basic | Content::Pc1600Basic => {
@@ -85,6 +98,7 @@ pub fn convert_with(
         | Content::Pc1600Machine
         | Content::Ce158Reserve
         | Content::Ce158Variables
+        | Content::Text
         | Content::Unknown => bail!(
             "convert only handles BASIC; got {}. A tokenized file must include a CE-158 or PC-1600 header.",
             content.describe()

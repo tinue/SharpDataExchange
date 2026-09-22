@@ -236,6 +236,130 @@ fn null_args_rejected() {
     assert_eq!(rc, SDE_ERR_ARGS);
 }
 
+// ---- disk sides ------------------------------------------------------------------
+
+fn floppy_side(fixture: &str, side: sharpdx::floppy_image::Side) -> Vec<u8> {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/floppy").join(fixture);
+    sharpdx::floppy_image::read_path(&p).unwrap().side(side).to_vec()
+}
+
+fn list(side: &[u8]) -> (Vec<(String, SdeDiskKind, u32)>, u32) {
+    let mut entries = [SdeDirEntry {
+        name: [0; 13],
+        attr: 0,
+        month: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        size: 0,
+        kind: SdeDiskKind::Unknown,
+        load_addr: 0,
+        run_addr: 0,
+    }; SDE_DISK_MAX_ENTRIES];
+    let (mut count, mut free) = (0usize, 0u32);
+    let rc = unsafe { sde_disk_list(side.as_ptr(), side.len(), entries.as_mut_ptr(), entries.len(), &mut count, &mut free) };
+    assert_eq!(rc, SDE_OK, "{}", last_error());
+    let out = entries[..count]
+        .iter()
+        .map(|e| {
+            let name = unsafe { CStr::from_ptr(e.name.as_ptr()) }.to_string_lossy().into_owned();
+            (name, e.kind, e.size)
+        })
+        .collect();
+    (out, free)
+}
+
+#[test]
+fn disk_list_and_get() {
+    use sharpdx::floppy_image::Side;
+    let side = floppy_side("dw.floppy.yaml", Side::A);
+    let (files, free) = list(&side);
+    assert_eq!(
+        files,
+        vec![("GLOBUS.BAS".to_string(), SdeDiskKind::Basic, 5967), ("BIO.BAS".to_string(), SdeDiskKind::Basic, 2059)]
+    );
+    assert_eq!(free, 53760);
+
+    let name = CString::new("bio.bas").unwrap();
+    let (mut out, mut out_len, mut kind) = (ptr::null_mut(), 0usize, SdeDiskKind::Unknown);
+    let rc = unsafe {
+        sde_disk_get(side.as_ptr(), side.len(), name.as_ptr(), SdeDiskGetMode::Auto, SdeLineEnding::Lf, &mut out, &mut out_len, &mut kind)
+    };
+    assert_eq!(rc, SDE_OK, "{}", last_error());
+    assert_eq!(kind, SdeDiskKind::Basic);
+    let listing = String::from_utf8(take_buf(out, out_len)).unwrap();
+    assert!(listing.lines().next().unwrap().chars().next().unwrap().is_ascii_digit(), "{listing}");
+
+    let rc = unsafe {
+        sde_disk_get(side.as_ptr(), side.len(), name.as_ptr(), SdeDiskGetMode::Payload, SdeLineEnding::Lf, &mut out, &mut out_len, ptr::null_mut())
+    };
+    assert_eq!(rc, SDE_OK);
+    assert_eq!(take_buf(out, out_len).len(), 2059 - 16);
+
+    let missing = CString::new("NOPE.BAS").unwrap();
+    let rc = unsafe {
+        sde_disk_get(side.as_ptr(), side.len(), missing.as_ptr(), SdeDiskGetMode::Raw, SdeLineEnding::Lf, &mut out, &mut out_len, ptr::null_mut())
+    };
+    assert_eq!(rc, SDE_ERR_NOT_FOUND);
+    assert!(last_error().contains("NOPE.BAS"));
+
+    let blank = floppy_side("dw.floppy.yaml", Side::B);
+    let mut count = 0usize;
+    let rc = unsafe { sde_disk_list(blank.as_ptr(), blank.len(), ptr::null_mut(), 0, &mut count, ptr::null_mut()) };
+    assert_eq!(rc, SDE_ERR_NOT_FORMATTED);
+    let rc = unsafe { sde_disk_list(blank.as_ptr(), 100, ptr::null_mut(), 0, &mut count, ptr::null_mut()) };
+    assert_eq!(rc, SDE_ERR_ARGS);
+}
+
+#[test]
+fn disk_put_and_delete() {
+    use sharpdx::floppy_image::Side;
+    let mut side = floppy_side("formatted.floppy.yaml", Side::A);
+    let when = SdeDiskTime { month: 9, day: 22, hour: 12, minute: 0, second: 0 };
+    let put = |side: &mut Vec<u8>, name: &str, data: &[u8], mode, start, run, flags| {
+        let n = CString::new(name).unwrap();
+        unsafe { sde_disk_put(side.as_mut_ptr(), side.len(), n.as_ptr(), data.as_ptr(), data.len(), mode, start, run, flags, &when) }
+    };
+    let listing = b"10 PRINT \"HI\"\n20 END\n";
+    assert_eq!(put(&mut side, "HI.BAS", listing, SdeDiskPutMode::Auto, 0, 0, 0), SDE_OK, "{}", last_error());
+    assert_eq!(put(&mut side, "HIA.BAS", listing, SdeDiskPutMode::AsciiListing, 0, 0, 0), SDE_OK);
+    assert_eq!(put(&mut side, "NOTE.TXT", "Grüße\n".as_bytes(), SdeDiskPutMode::Auto, 0, 0, 0), SDE_OK);
+    assert_eq!(put(&mut side, "MC.BIN", &[0xC9], SdeDiskPutMode::Machine, 0x01C000, SDE_DISK_NO_RUN, 0), SDE_OK);
+    let pun = b"                 50                     1 MARTIN\r\n\x1A";
+    assert_eq!(put(&mut side, "SCORE.PUN", pun, SdeDiskPutMode::Auto, 0, 0, 0), SDE_OK);
+    assert_eq!(put(&mut side, "SCORE.BAS", pun, SdeDiskPutMode::Tokenize, 0, 0, 0), SDE_OK, "{}", last_error());
+    let before = side.clone();
+    assert_eq!(put(&mut side, "HI.BAS", listing, SdeDiskPutMode::Auto, 0, 0, 0), SDE_ERR_EXISTS);
+    assert_eq!(put(&mut side, "BLOB", &[0, 1, 2], SdeDiskPutMode::Auto, 0, 0, 0), SDE_ERR);
+    assert_eq!(put(&mut side, "BAD NAME", listing, SdeDiskPutMode::Auto, 0, 0, 0), SDE_ERR_BAD_NAME);
+    assert_eq!(put(&mut side, "BIG", &vec![1u8; 70000], SdeDiskPutMode::Raw, 0, 0, 0), SDE_ERR_DISK_FULL);
+    assert_eq!(side, before, "a failed put must not change the side");
+    assert_eq!(put(&mut side, "HI.BAS", b"10 END\n", SdeDiskPutMode::Auto, 0, 0, SDE_DISK_FORCE), SDE_OK);
+
+    let (files, _) = list(&side);
+    let kinds: Vec<(&str, SdeDiskKind)> = files.iter().map(|(n, k, _)| (n.as_str(), *k)).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("HI.BAS", SdeDiskKind::Basic),
+            ("HIA.BAS", SdeDiskKind::AsciiBasic),
+            ("NOTE.TXT", SdeDiskKind::Text),
+            ("MC.BIN", SdeDiskKind::Machine),
+            ("SCORE.PUN", SdeDiskKind::Text),
+            ("SCORE.BAS", SdeDiskKind::Basic)
+        ]
+    );
+
+    let pat = CString::new("HI*.BAS").unwrap();
+    let mut deleted = 0usize;
+    let rc = unsafe { sde_disk_delete(side.as_mut_ptr(), side.len(), pat.as_ptr(), 0, &mut deleted) };
+    assert_eq!((rc, deleted), (SDE_OK, 2));
+    let rc = unsafe { sde_disk_delete(side.as_mut_ptr(), side.len(), pat.as_ptr(), 0, &mut deleted) };
+    assert_eq!(rc, SDE_ERR_NOT_FOUND);
+    assert_eq!(list(&side).0.len(), 4);
+}
+
 // ---- generated-file drift guards -------------------------------------------------
 
 #[test]
@@ -255,6 +379,11 @@ fn header_is_current() {
         "SdeDevice",
         "SdeLineEnding",
         "SdeSegmentMarker",
+        "sde_disk_list",
+        "sde_disk_get",
+        "sde_disk_put",
+        "sde_disk_delete",
+        "SdeDirEntry",
     ] {
         assert!(h.contains(sym), "generated header missing {sym}");
     }

@@ -6,18 +6,13 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
 use crate::detect::{self, Content};
-use crate::detokenize::LineEnding;
-use crate::header::{self, FileType, ParsedHeader};
+use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
-use crate::scanner::SegmentMarker;
+use crate::sender;
 use crate::serial::{self, RealTransport, Transport};
-use crate::{filename, sender};
+use crate::transfer::{self, PutBytes, PutKind, PutSpec};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Format {
-    Ascii,
-    Binary,
-}
+pub use crate::transfer::Format;
 
 pub struct PutOptions {
     pub device: Option<PocketDevice>,
@@ -70,9 +65,9 @@ pub fn resolve_effective_device(
     }
 }
 
-/// Build the exact byte sequence to transmit, per §5 step 5 / §3's header-auto-add
-/// rules. Returns `(bytes, header_len)`: `header_len` is the leading slice a paced send
-/// treats as "the header" (sent at full speed, then paused); `0` for a headerless send.
+/// Build the exact byte sequence to transmit (see [`transfer::build_put`]). Returns
+/// `(bytes, header_len)`: `header_len` is the leading slice a paced send treats as "the
+/// header" (sent at full speed, then paused); `0` for a headerless send.
 pub fn build_put_bytes(
     raw: &[u8],
     header: Option<&ParsedHeader>,
@@ -80,100 +75,17 @@ pub fn build_put_bytes(
     opts: &PutOptions,
     device: PocketDevice,
 ) -> Result<(Vec<u8>, usize)> {
-    if let Some(h) = header {
-        // Already has a recognized header -- send as-is, unmodified.
-        return Ok((raw.to_vec(), h.offset + h.header_len));
-    }
-
-    let forced_machine = opts.start_address.is_some();
-
-    if !forced_machine && content == Content::AsciiBasic {
-        // --format is only meaningful for machine language (§5 step 3); ASCII BASIC
-        // input is always tokenized regardless of what --format was given.
-        let text = crate::text::decode_bas_listing(raw);
-        let reg_device = device.to_registry_device();
-        crate::text::require_ascii_for_pc1500(&text, reg_device)?;
-        let name = filename::synth_basename(&opts.input_file);
-        let outcome = crate::convert::convert_with(
-            text.as_bytes(),
-            reg_device,
-            Some(&name),
-            true,
-            LineEnding::Platform,
-            SegmentMarker::Wire,
-        )?;
-        let built_header = header::find(&outcome.bytes).expect("convert_with always wraps a header");
-        return Ok((outcome.bytes, built_header.header_len));
-    }
-
-    if !forced_machine && content == Content::Ce158Reserve {
-        let text = String::from_utf8_lossy(raw);
-        let layout = crate::reserve::from_ascii(&text)?;
-        let reg = crate::registry::Registry::for_device(device.to_registry_device());
-        let payload = crate::reserve::encode_payload(&layout, reg)?;
-        let name = layout.filename.clone().unwrap_or_else(|| filename::synth_basename(&opts.input_file));
-        let built = header::build_header(header::BuildHeader {
-            device: device.to_registry_device(),
-            file_type: FileType::Reserve,
-            name: Some(&name),
-            payload_len: payload.len(),
-            start_addr: 0,
-            run_addr: 0,
-        });
-        let header_len = built.len();
-        let mut bytes = built;
-        bytes.extend_from_slice(&payload);
-        return Ok((bytes, header_len));
-    }
-
-    if !forced_machine && content == Content::Ce158Variables {
-        let text = String::from_utf8_lossy(raw);
-        let file = crate::variables::from_ascii(&text)?;
-        let payload = crate::variables::encode_payload(&file.values)?;
-        let name = file.filename.clone().unwrap_or_else(|| filename::synth_basename(&opts.input_file));
-        // build_header always writes the Variables wire length as 0 regardless of
-        // payload_len, matching the device's own wire behavior for this type.
-        let built = header::build_header(header::BuildHeader {
-            device: device.to_registry_device(),
-            file_type: FileType::Variables,
-            name: Some(&name),
-            payload_len: payload.len(),
-            start_addr: 0,
-            run_addr: 0,
-        });
-        let header_len = built.len();
-        let mut bytes = built;
-        bytes.extend_from_slice(&payload);
-        return Ok((bytes, header_len));
-    }
-
-    // No header, not ASCII BASIC/Reserve/Variables -- a machine-language candidate.
-    if forced_machine {
-        let start = opts.start_address.expect("forced_machine implies Some");
-        let run = opts.run_address.unwrap_or(0xFFFF);
-        let name = filename::synth_basename(&opts.input_file);
-        let built = header::build_header(header::BuildHeader {
-            device: device.to_registry_device(),
-            file_type: FileType::Machine,
-            name: Some(&name),
-            payload_len: raw.len(),
-            start_addr: start,
-            run_addr: run,
-        });
-        let header_len = built.len();
-        let mut bytes = built;
-        bytes.extend_from_slice(raw);
-        return Ok((bytes, header_len));
-    }
-
-    if opts.raw {
-        return Ok((raw.to_vec(), 0));
-    }
-
-    bail!(
-        "headerless machine-language input needs --start-address (or --raw to send it \
-         completely unmodified)"
-    )
+    let spec = PutSpec {
+        source_name: &opts.input_file,
+        device: device.to_registry_device(),
+        format: opts.format,
+        start_address: opts.start_address,
+        run_address: opts.run_address,
+        raw: opts.raw,
+        endpoint: transfer::Endpoint::Serial,
+    };
+    let out = transfer::build_put(raw, header, content, &spec)?;
+    Ok((out.bytes, out.header_len))
 }
 
 pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
@@ -205,33 +117,33 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
         return run_put_ascii_lines(&raw, opts, config, device);
     }
 
-    let (bytes, header_len) = build_put_bytes(&raw, header.as_ref(), content, opts, device)?;
+    let spec = PutSpec {
+        source_name: &opts.input_file,
+        device: device.to_registry_device(),
+        format: opts.format,
+        start_address: opts.start_address,
+        run_address: opts.run_address,
+        raw: opts.raw,
+        endpoint: transfer::Endpoint::Serial,
+    };
+    let PutBytes { bytes, header_len, kind } = transfer::build_put(&raw, header.as_ref(), content, &spec)?;
 
-    if header.is_none() && header_len > 0 {
-        // We synthesized or added a header ourselves (either by tokenizing ASCII BASIC,
-        // or by wrapping headerless machine language given --start-address).
-        if let Some(h) = header::find(&bytes) {
-            if h.file_type == FileType::Machine {
+    match kind {
+        PutKind::AsIs => {}
+        PutKind::MachineWrapped => {
+            if let Some(h) = header::find(&bytes) {
                 let w = device.addr_hex_width();
                 crate::verbosity::narrate(
                     opts.verbose,
-                    format!(
-                        "Adding MACHINE header: load=0x{:0w$X} run=0x{:0w$X}",
-                        h.start_addr,
-                        h.run_addr,
-                        w = w
-                    ),
+                    format!("Adding MACHINE header: load=0x{:0w$X} run=0x{:0w$X}", h.start_addr, h.run_addr, w = w),
                 );
-            } else if h.file_type == FileType::Reserve {
-                crate::verbosity::narrate(opts.verbose, "Tokenized Reserve Area input before sending");
-            } else if h.file_type == FileType::Variables {
-                crate::verbosity::narrate(opts.verbose, "Tokenized Variables input before sending");
-            } else {
-                crate::verbosity::narrate(opts.verbose, "Tokenized ASCII BASIC input before sending");
             }
         }
-    } else if header.is_none() && header_len == 0 {
-        crate::verbosity::narrate(opts.verbose, "Sending raw bytes unmodified (no header, --raw)");
+        PutKind::Reserve => crate::verbosity::narrate(opts.verbose, "Tokenized Reserve Area input before sending"),
+        PutKind::Variables => crate::verbosity::narrate(opts.verbose, "Tokenized Variables input before sending"),
+        PutKind::TokenizedBasic => crate::verbosity::narrate(opts.verbose, "Tokenized ASCII BASIC input before sending"),
+        PutKind::Text | PutKind::AsciiListing => crate::verbosity::narrate(opts.verbose, "Converted text to CP437 with CRLF line endings"),
+        PutKind::Raw => crate::verbosity::narrate(opts.verbose, "Sending raw bytes unmodified (no header, --raw)"),
     }
 
     if opts.dry_run {
@@ -292,6 +204,7 @@ fn run_put_ascii_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::header::FileType;
     use crate::registry::Device as RegDevice;
 
     fn opts(input_file: &str) -> PutOptions {
