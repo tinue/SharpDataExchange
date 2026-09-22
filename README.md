@@ -41,8 +41,8 @@ Download for your platform from the [Releases](../../releases) page. The
 
 | download | platform |
 |---|---|
-| `SharpDataExchange-<version>.pkg` | macOS 12+ (Apple Silicon) — graphical installer |
-| `sharpdx-macos-arm64.tar.gz` | macOS 12+ (Apple Silicon) — archive |
+| `SharpDataExchange-<version>.pkg` | macOS 15.8+ (Apple Silicon) — graphical installer |
+| `sharpdx-macos-arm64.tar.gz` | macOS 15.8+ (Apple Silicon) — archive |
 | `sharpdx-linux-x86_64.tar.gz` | Linux x86-64 (glibc 2.35+) |
 | `sharpdx-linux-aarch64.tar.gz` | Linux arm64 (glibc 2.35+) |
 | `sharpdx-windows-x86_64.zip` | Windows 10+ x64 |

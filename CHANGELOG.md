@@ -13,6 +13,14 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.0] - WIP
 
+### Changed
+
+- macOS builds (`sde`, `libsharpdx.a`, `libsharpdx.dylib`) now require **macOS 15.8 or
+  later**, and the `.pkg` installer refuses to install on older versions. Apps that
+  link `libsharpdx` should target macOS 15.8 or later too. (Earlier releases were
+  listed as macOS 12+ but were really built for macOS 11, and their installer did not
+  check the OS version.)
+
 ## [0.2.3] - 2026-09-22
 
 ### Added

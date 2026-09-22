@@ -1,0 +1,8 @@
+# Minimum macOS for every Apple build (the `sde` binary, libsharpdx.{a,dylib}):
+# local, install.sh, CI and release all pick it up from here. Without it rustc
+# falls back to its own per-target default (11.0 for aarch64-apple-darwin),
+# which silently drifts with the toolchain. Keep in sync with
+# .github/macos/distribution.xml, README.md and library.md.
+# An explicit MACOSX_DEPLOYMENT_TARGET in the environment still wins.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "15.8"

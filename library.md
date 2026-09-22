@@ -36,7 +36,8 @@ sharpdx-<platform>/
 └── library.md
 ```
 
-The macOS archive is Apple Silicon (`arm64`) only; its `sde` and
+The macOS archive is Apple Silicon (`arm64`) only and targets macOS 15.8+
+(`MACOSX_DEPLOYMENT_TARGET=15.8`, set in `.cargo/config.toml`); its `sde` and
 `libsharpdx.dylib` are signed with a Developer ID and notarized (hardened
 runtime). A signed, notarized, stapled `.pkg` installer is published alongside it
 — see the main [README](README.md#on-macos).

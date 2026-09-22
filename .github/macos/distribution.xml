@@ -6,10 +6,14 @@
   show the "Install for all users of this computer" / "Install for me only" pane;
   the postinstall script keys off whether it runs as root to place `sde` in
   /usr/local/bin or ~/.local/bin.  __VERSION__ is substituted by
-  .github/scripts/macos-pkg.sh.
+  .github/scripts/macos-pkg.sh.  <allowed-os-versions> makes Installer refuse
+  macOS older than the binary's deployment target (.cargo/config.toml).
 -->
 <installer-gui-script minSpecVersion="2">
     <title>SharpDataExchange</title>
+    <allowed-os-versions>
+        <os-version min="15.8"/>
+    </allowed-os-versions>
     <domains enable_localSystem="true" enable_currentUserHome="true"/>
     <options customize="never" require-scripts="true" hostArchitectures="arm64"/>
     <choices-outline>
