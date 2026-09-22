@@ -11,6 +11,16 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
+### Changed
+
+- macOS builds (`sde`, `libsharpdx.a`, `libsharpdx.dylib`) now require **macOS 15.8 or
+  later**, and the `.pkg` installer refuses to install on older versions. Apps that
+  link `libsharpdx` should target macOS 15.8 or later too. (Earlier releases were
+  listed as macOS 12+ but were really built for macOS 11, and their installer did not
+  check the OS version.)
+
 ## [0.2.3] - 2026-09-22
 
 ### Added
@@ -260,7 +270,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/tinue/SharpDataExchange/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tinue/SharpDataExchange/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/tinue/SharpDataExchange/compare/v0.2.0...v0.2.1

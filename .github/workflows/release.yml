@@ -127,6 +127,15 @@ jobs:
           cargo build --release --target aarch64-apple-darwin --bin sde
           cargo build --release --target aarch64-apple-darwin --lib --no-default-features
 
+      - name: Check minimum macOS (.cargo/config.toml)
+        run: |
+          set -euo pipefail
+          REL=target/aarch64-apple-darwin/release
+          for f in "$REL/sde" "$REL/libsharpdx.dylib"; do
+            vtool -show-build "$f" | grep -q 'minos 15.8' \
+              || { echo "::error::$f is not built for macOS 15.8"; vtool -show-build "$f"; exit 1; }
+          done
+
       - name: Resolve version
         id: ver
         run: |
