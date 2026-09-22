@@ -184,7 +184,8 @@ fn number_column_data_file_stays_text() {
     assert_eq!(std::fs::read(dir.join("raw.pun")).unwrap(), std::fs::read(dir.join("ATLANTIS.PUN")).unwrap());
     std::fs::create_dir(dir.join("out")).unwrap();
     let got = ok(&dir, &["get", "formatted.floppy.yaml:A:ATLANTIS.PUN", "out"]);
-    assert!(got.contains("out/ATLANTIS.PUN") && got.contains("(text"), "{got}");
+    let want = std::path::Path::new("out").join("ATLANTIS.PUN").display().to_string();
+    assert!(got.contains(&want) && got.contains("(text"), "{got}");
 
     ok(&dir, &["put", "ATLANTIS.PUN", "formatted.floppy.yaml:A:", "-f", "binary"]);
     let out = ok(&dir, &["dir", "formatted.floppy.yaml:A"]);
