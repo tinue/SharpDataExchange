@@ -24,7 +24,7 @@ var outLen: Int = 0
 
 let rc = input.withUnsafeBytes { raw -> Int32 in
     "sample".withCString { name in
-        sde_tokenize(SDE_DEVICE_PC1500, 1, name,
+        sde_tokenize(SDE_DEVICE_PC1500, 1, SDE_SEGMENT_MARKER_WIRE, name,
                      raw.bindMemory(to: UInt8.self).baseAddress, raw.count,
                      &out, &outLen)
     }

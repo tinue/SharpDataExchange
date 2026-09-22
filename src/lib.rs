@@ -18,6 +18,13 @@ pub mod variables;
 
 mod abbrev;
 pub mod convert;
+/// Host-file ⇄ device-bytes conversion shared by every transfer target.
+pub mod transfer;
+
+/// Calc-U-1600 `.floppy.yaml` container (two 64 KB sides).
+pub mod floppy_image;
+/// PC-1600 FAT filesystem on a CE-1600F floppy side.
+pub mod diskfs;
 
 /// CLI-only filesystem glue (extension rules, output-path derivation). Kept in the
 /// library for module wiring, but never called from [`ffi`].
@@ -46,6 +53,9 @@ pub mod get_cmd;
 /// CLI-only: `put` orchestration.
 #[cfg(feature = "serial")]
 pub mod put_cmd;
+/// CLI-only: `dir`/`del` and the disk-image forms of `get`/`put`.
+#[cfg(feature = "cli")]
+pub mod disk_cmd;
 
 pub mod ffi;
 

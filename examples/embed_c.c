@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
 
     uint8_t *out = NULL;
     size_t out_len = 0;
-    int32_t rc = sde_tokenize(SDE_DEVICE_PC1500, /*with_header=*/1, "sample",
+    int32_t rc = sde_tokenize(SDE_DEVICE_PC1500, /*with_header=*/1, SDE_SEGMENT_MARKER_WIRE, "sample",
                               in, in_len, &out, &out_len);
     if (rc != SDE_OK) {
         fprintf(stderr, "sde_tokenize failed (%d): %s\n", rc, sde_last_error());

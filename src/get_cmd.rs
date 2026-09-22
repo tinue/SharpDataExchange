@@ -7,25 +7,22 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
-use crate::detect::{self, Content};
-use crate::detokenize::{self, LineEnding};
-use crate::header::{self, FileType, ParsedHeader};
+use crate::detokenize::LineEnding;
+use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
-use crate::registry::Registry;
 use crate::serial::{self, RealTransport};
+use crate::transfer::{self, GetSpec};
 use crate::{filename, receiver};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Format {
-    Ascii,
-    Binary,
-}
+pub use crate::transfer::Format;
 
 pub struct GetOptions {
     pub device: PocketDevice,
     pub port: Option<String>,
     pub format: Format,
     pub skip_header: bool,
+    /// Line ending for listings / text written to the host file.
+    pub eol: LineEnding,
     pub raw: bool,
     pub dry_run: bool,
     pub verbose: bool,
@@ -125,74 +122,26 @@ fn header_flavor(device: crate::registry::Device) -> &'static str {
 /// filename.
 fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let header = header::find(raw);
-    let content = detect::detect_from_header(header.as_ref(), raw);
 
     match &header {
         Some(h) => crate::verbosity::narrate(opts.verbose, format!("Header found: {:?} ({:?})", h.file_type, h.device)),
-        None => eprintln!("WARNING: No recognizable header in received data"),
+        None => crate::verbosity::narrate(opts.verbose, "No header in received data"),
     }
 
-    let file_type = header.as_ref().map(|h| h.file_type);
-
-    if file_type == Some(FileType::Machine) && opts.format == Format::Ascii {
-        bail!("machine language cannot be converted to ASCII; use --format binary");
+    let extracted = transfer::extract(
+        raw,
+        &GetSpec { format: Some(opts.format), skip_header: opts.skip_header, eol: opts.eol },
+    )?;
+    if header.is_none() && extracted.content == crate::detect::Content::Unknown {
+        eprintln!("WARNING: No recognizable header in received data");
     }
-
-    let bytes = match (opts.format, &header, content) {
-        (Format::Ascii, Some(h), _) if h.file_type == FileType::Basic => {
-            crate::verbosity::narrate(opts.verbose, "De-tokenizing BASIC payload");
-            let payload = &raw[h.payload_start()..];
-            let reg = Registry::for_device(h.device);
-            detokenize::detokenize_to_text(payload, reg, LineEnding::Platform)?.into_bytes()
-        }
-        (Format::Ascii, None, Content::AsciiBasic) => {
-            crate::verbosity::narrate(opts.verbose, "Cleaning up ASCII BASIC listing");
-            crate::text::decode_bas_listing(raw).into_bytes()
-        }
-        (Format::Ascii, Some(h), _) if h.file_type == FileType::Reserve => {
-            crate::verbosity::narrate(opts.verbose, "De-tokenizing Reserve Area payload");
-            let payload = &raw[h.payload_start()..h.payload_start() + h.length];
-            let reg = Registry::for_device(h.device);
-            let mut layout = crate::reserve::decode_payload(payload, reg)?;
-            layout.filename = h.filename.clone();
-            crate::reserve::to_ascii(&layout).into_bytes()
-        }
-        (Format::Ascii, Some(h), _) if h.file_type == FileType::Variables => {
-            crate::verbosity::narrate(opts.verbose, "De-tokenizing Variables payload");
-            // The header's length field is not meaningful for Variables (see
-            // `ParsedHeader::length`); parse to end of the received buffer instead.
-            let payload = &raw[h.payload_start()..];
-            let mut file = crate::variables::decode_payload(payload)?;
-            file.filename = h.filename.clone();
-            crate::variables::to_ascii(&file).into_bytes()
-        }
-        (Format::Ascii, _, _) => {
-            bail!("cannot produce an ASCII listing from this content ({})", content.describe());
-        }
-        (Format::Binary, _, _) => {
-            if opts.skip_header {
-                match &header {
-                    Some(h) => raw[h.payload_start()..].to_vec(),
-                    None => {
-                        eprintln!("WARNING: --skip-header given but no header was found; saving all bytes");
-                        raw.to_vec()
-                    }
-                }
-            } else {
-                raw.to_vec()
-            }
-        }
-    };
-
-    if opts.skip_header && opts.format == Format::Binary {
-        eprintln!(
-            "WARNING: --skip-header omits the serial header from the saved file. \
-             The file cannot be identified or reloaded without it."
-        );
+    crate::verbosity::narrate(opts.verbose, format!("Content: {}", extracted.content.describe()));
+    for note in &extracted.notes {
+        eprintln!("WARNING: {note}");
     }
-
-    let ext = file_type.map(filename::ext_for).unwrap_or("bas");
-    let path = resolve_output_path(opts.output_file.as_deref(), header.as_ref(), ext);
+    let content = extracted.content;
+    let bytes = extracted.bytes;
+    let path = resolve_output_path(opts.output_file.as_deref(), header.as_ref(), extracted.ext);
 
     Ok(Outcome { path, bytes, summary: content.describe().to_string() })
 }
@@ -215,6 +164,7 @@ fn resolve_output_path(given: Option<&str>, header: Option<&ParsedHeader>, ext: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::header::FileType;
     use crate::registry::Device as RegDevice;
 
     fn opts() -> GetOptions {
@@ -223,6 +173,7 @@ mod tests {
             port: None,
             format: Format::Ascii,
             skip_header: false,
+            eol: LineEnding::Lf,
             raw: false,
             dry_run: false,
             flow_control: false,

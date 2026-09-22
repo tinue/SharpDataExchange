@@ -1,15 +1,17 @@
 # SharpDataExchange (`sde`)
 
 Transfer BASIC programs and machine-language code to/from a Sharp PC-1500 /
-PC-1500A / PC-1600 pocket computer over serial, and tokenize/de-tokenize BASIC
-listings offline — no Java runtime, a single self-contained binary. This is the
+PC-1500A / PC-1600 pocket computer over serial, read and write files on
+[Calc-U-1600](https://github.com/tinue/Calc-U-1600) CE-1600F floppy images, and
+tokenize/de-tokenize BASIC listings offline — no Java runtime, a single
+self-contained binary. This is the
 Rust reimplementation of the Java
 [`SharpDataExchange`](https://github.com/tinue/SharpDataExchange), with
 **byte-identical `convert` output** to the Java tool on the checked-in fixtures.
 
 Embedding this in your own application (C / C++ / Swift / Rust)? See
-[`library.md`](library.md) — that covers only the offline tokenize/de-tokenize
-core; `get`/`put`/`config` are CLI-only.
+[`library.md`](library.md) — that covers the offline tokenize/de-tokenize core and
+file access on a floppy side; serial `get`/`put` and `config` are CLI-only.
 
 ## Table of Contents
 
@@ -200,6 +202,35 @@ On the Pocket Computer side, `get` corresponds to a **save** command (e.g.
 A third command, **`convert`**, needs no Pocket Computer: it tokenizes or
 de-tokenizes a BASIC file on the PC alone.
 
+### Disk images (Calc-U-1600)
+
+`get` and `put` can also take a file off, or store one on, a CE-1600F floppy image
+of the [Calc-U-1600](https://github.com/tinue/Calc-U-1600) emulator
+(`<name>.floppy.yaml`) instead of talking to the serial port. `dir` lists such an
+image and `del` deletes files from it. A file on the image is addressed as
+
+```
+<image>.floppy.yaml:<side>:<NAME.EXT>
+```
+
+- `<side>` is `A` or `B`: the CE-1600F drive is single-sided and the disk is turned
+  over by hand, so each side is a separate volume with its own files.
+- Names are 8.3 and upper-case on the disk (`prog.bas` is stored as `PROG.BAS`).
+- `get` and `del` accept `*` and `?` wildcards (DOS rules: `*.BAS`, `G*.*`, `*`).
+  Quote them so the shell doesn't expand them: `'disk.floppy.yaml:A:*.BAS'`.
+- The floppy is PC-1600 media, so everything is PC-1600: BASIC is tokenized with the
+  PC-1600 keyword table, and files with a PC-1500 (CE-158) header are refused.
+- The image is always rewritten whole and atomically, and only if every file of the
+  command succeeded — a failing `put` of three files stores none of them.
+
+**Eject the disk in Calc-U-1600 first** (or quit the emulator). The emulator keeps an
+inserted disk in memory and rewrites its file shortly after every disk access, which
+would silently undo sde's changes.
+
+The container format is specified in Calc-U-1600's `docs/Floppy-Image-Format.md`; the
+filesystem inside a side is Sharp's (see the `SharpPC1500Reference` corpus,
+`PC-1600-Filesystem.md` §5).
+
 ### Who goes first
 
 For `get`: start `sde get` first, then issue the save command on the Pocket
@@ -286,6 +317,7 @@ BASIC, `.bin` for machine language).
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted; see [Serial Port Auto-Detection](#serial-port-auto-detection)). |
 | `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; RTS is used while receiving). Off by default, which is the safe choice: the host is fast enough that nothing is lost without it. See [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `binary`. `ascii` on machine-language content is rejected — machine language can't be de-tokenized, so pass `--format binary` for it. |
+| `--eol <eol>` | Line ending of a de-tokenized listing or text file: `auto` (default: CRLF on Windows, LF elsewhere), `lf`, `crlf`, `cr`. |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). The resulting file can't be auto-identified or reloaded by `sde` without it — a warning is printed. |
 | `--raw` | Dump the received bytes verbatim, with no header/content detection at all. Requires an output file. See below. |
 | `--dry-run` | Perform the real receive, run detection, but skip the file write — reports what would have been written. |
@@ -321,10 +353,11 @@ detected from the file's bytes, never its name.
 | `-d`, `--device <device>` | Target device. Optional if the file already carries a recognized header — the device is then inferred from it (an explicit `--device` of the wrong *family* is an error; if the header is PC-1600 and neither `pc1600` nor `pc1600emul` is given, that's ambiguous and also an error — `sde` doesn't guess). Without a header and without `--device`, defaults to `pc1500`. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted). |
 | `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; CTS is used while sending). Off by default: a `pc1600` transfer is then paced byte-by-byte like `pc1600emul`. With it, a real `pc1600` is sent unpaced and the handshake throttles the transfer. Only try this if `put` fails with `ERROR 142`, and set `RCVSTAT "COM1:",24` on the PC-1600 to match; see [Sharp PC-1600](#sharp-pc-1600). |
-| `-f`, `--format <format>` | For headerless ASCII BASIC input: `binary` (default when omitted) tokenizes it before sending; `ascii` sends it line-by-line, untokenized (slower; mirrors the device's `CLOADa`/ASCII load). Has no effect on machine language (always sent as raw binary) or on input that already has a header (always sent as-is). |
+| `-f`, `--format <format>` | For headerless ASCII BASIC input: `binary` (default when omitted) tokenizes it before sending; `ascii` sends it line-by-line, untokenized (slower; mirrors the device's `CLOADa`/ASCII load). On input detected as [text](#text), `binary` forces it to be tokenized as a BASIC listing — the override when a listing is not recognized as BASIC. Has no effect on machine language (always sent as raw binary) or on input that already has a header (always sent as-is). |
 | `--start-address <hex>` | Load address for a **headerless** machine-language input (e.g. `38C5` or `0x38C5`). Required to send headerless machine code — see below. |
 | `--run-address <hex>` | Auto-run address for a headerless machine-language input; requires `--start-address`. Defaults to `0xFFFF` (no auto-run) if `--start-address` is given without it. |
 | `--raw` | Send a headerless machine-language file exactly as read, unmodified — even without `--start-address`. Overrides the error below. |
+| `--force` | Disk images only: replace an existing file of the same name. |
 | `--dry-run` | Report what would be sent (header present/added/omitted, size, addresses), without opening the serial port. |
 | `-v`, `--verbose` / `-q`, `--quiet` | See [Verbosity](#verbosity--v---q--config-default). |
 | `-h`, `--help` | Print help. (`--version`/`-V` is top-level only: `sde --version`, not `sde put --version`.) |
@@ -338,6 +371,51 @@ detected from the file's bytes, never its name.
   header from it (and `--run-address`, default `0xFFFF`). **Without** a header,
   `--start-address`, or `--raw`, `put` refuses rather than guessing what the
   bytes are.
+- Plain text (see [Text](#text)) is converted to the Sharp character set with CRLF
+  line ends and a trailing `1A` and sent without a header — PC-1600 family only.
+  For the PC-1500, use `--raw`.
+
+### `dir`, `get`, `put`, `del` on a disk image
+
+```
+sde dir <image>.floppy.yaml[:<side>[:<pattern>]]
+sde get [options] <image>.floppy.yaml:<side>:<NAME.EXT|pattern> [<output-file-or-dir>]
+sde put [options] <file>... <image>.floppy.yaml:<side>:[<NAME.EXT>]
+sde del [--force] [--dry-run] <image>.floppy.yaml:<side>:<NAME.EXT|pattern>...
+```
+
+See [Disk images](#disk-images-calc-u-1600) for the addressing and the "eject first"
+rule. `dir` lists name, size, date and time, attributes (`P` write-protected, `H`
+hidden, `I` unknown) and the file's type, found from its content (the directory does
+not record it), plus the free space. Without a side it lists both.
+
+What `put` stores and `get` returns, by what the file contains:
+
+| Content | `put` stores (default) | `get` writes (default) | Options |
+|---|---|---|---|
+| BASIC listing | tokenized, 16-byte header, `NAME.BAS` | de-tokenized listing, `NAME.bas` | `put -f ascii`: store the listing as an ASCII program (what `SAVE "…",A` writes). `get -f binary`: keep it tokenized with its header (`NAME.bin`); add `--skip-header` to drop the header. |
+| BASIC saved as ASCII | — | the listing, `NAME.bas` | `--raw` for the stored bytes |
+| Text (`.ASM`, `.CFG`, …) | Sharp character set, CRLF, trailing `1A` | UTF-8, `--eol` line ends, `1A` removed; name kept | `put -f binary`: tokenize it as BASIC after all (see below). `get -f binary` / `--raw`: the stored bytes |
+| File with a PC-1600 header | unchanged | machine code: unchanged (header kept, `.bin` if no extension); BASIC: see above | `get --skip-header`: without the header. `put --start-address` with a header is an error. |
+| Machine code without a header | **error** — give `--start-address` (24-bit: bank in the top byte, e.g. `1C000` = bank 1, `C000`) and optionally `--run-address` (default: no auto-start), which adds a header; or `--raw` | — | |
+| File with a PC-1500 header, SDAR, SDAV | **error** (PC-1500 data) | — | `put --raw` stores it anyway |
+| Anything else | **error**, as for headerless machine code | unchanged, with a warning | |
+
+**BASIC or text?** A headerless file counts as a BASIC listing only if its lines look
+like listing lines: at most 4 spaces, a line number, exactly one space or tab, then the
+statement. The test is strict on purpose. Text taken for BASIC would be tokenized and
+ruined — a data file such as a game's high-score list (`      50        1 MARTIN`)
+must stay text — while a listing taken for text still works: it is stored as an ASCII
+program, which the PC-1600 `LOAD`s. If a real listing is taken for text, `put -f binary`
+forces tokenizing; it fails if the file has no numbered lines. Line numbers need not
+increase (`#SEGMENT` restarts them).
+
+`put` names the file on the disk after the host file (upper-cased; `BAS` for BASIC,
+otherwise the host extension). A name after the side renames it (one input file only):
+`sde put hello.bas disk.floppy.yaml:A:HI.BAS`. An existing file is only replaced with
+`--force`. With a wildcard, `get` writes into a directory (default: the current one);
+`--raw` writes every file exactly as stored. `--dry-run` never changes the image.
+`--port`, `--flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
 
 ### `convert` — Tokenize / de-tokenize a BASIC file offline
 
@@ -519,6 +597,14 @@ included by default, so the file can be sent straight back with `put`
 unmodified). Machine language is *always* saved as raw binary regardless of
 `--format`, since it can't be de-tokenized to a listing.
 
+### Text
+
+Any other UTF-8 text whose characters all exist in the Sharp character set (treated
+as IBM code page 437) — assembler source, configuration files and the like. On the
+PC-1600 (and on its disks) such a file is an "ASCII file": no header, CRLF line ends,
+a final `1A` byte. `sde` converts in both directions; a character with no equivalent
+in the Sharp set is an error naming its line and column.
+
 ### Reserve Area (SDAR)
 
 PC-1500/1500A only (`CSAVEr`/`CLOADr`); not reachable through `convert`, only
@@ -636,6 +722,21 @@ Start `sde get` **first**, then on the PC-1500, e.g. `CSAVE M &38C5,&3A00`:
 sde get program.bin --format binary
 ```
 
+### Put programs on a Calc-U-1600 floppy
+
+Eject the disk in Calc-U-1600 first, then:
+
+```
+sde dir  Progs.floppy.yaml
+sde put  hello.bas notes.txt Progs.floppy.yaml:A:
+sde put  monitor.bin Progs.floppy.yaml:A:MON.BIN --start-address C0C5
+sde get  'Progs.floppy.yaml:A:*.BAS' listings/
+sde del  Progs.floppy.yaml:A:OLD.BAS
+```
+
+On the PC-1600: `LOAD "X:HELLO.BAS"`, `OPEN "X:NOTES.TXT" FOR INPUT AS #1`,
+`BLOAD "X:MON.BIN"`.
+
 ### Set up `pc1600emul` once, then omit `--port` every time
 
 ```
@@ -730,9 +831,9 @@ work.
 ## Scope / Known Limitations
 
 Implemented: `convert` (offline tokenize/de-tokenize), `get`/`put` (serial
-transfer) for **BASIC programs, machine-language programs, Reserve Area, and
-Variables** (the latter two PC-1500/1500A-only, `get`/`put`-only), and `config`
-(per-user defaults).
+transfer) for **BASIC programs, machine-language programs, text, Reserve Area, and
+Variables** (the latter two PC-1500/1500A-only, `get`/`put`-only), `dir`/`get`/`put`/
+`del` on Calc-U-1600 floppy images, and `config` (per-user defaults).
 
 Won't implement (permanent decisions, not just currently-undone work):
 
@@ -747,6 +848,10 @@ Won't implement (permanent decisions, not just currently-undone work):
   pass `--port` there.
 
 Not implemented (may change):
+
+- Disk images: only CE-1600F floppies (`.floppy.yaml`). PC-1600 RAM-disk card images,
+  raw `.img` dumps, and formatting a side (`INIT`) are not supported; real 2.5″ disks
+  can't be read at all.
 
 - Whether the PC-1600 protocol has header types equivalent to Reserve Area/Variables
   at all is **unresearched** — `sde` does not recognize any PC-1600 header type byte

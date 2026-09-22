@@ -40,6 +40,7 @@ pub fn run_convert(
         | Content::Pc1600Machine
         | Content::Ce158Reserve
         | Content::Ce158Variables
+        | Content::Text
         | Content::Unknown => bail!(
             "convert only handles BASIC; got {}. A tokenized file must include a CE-158 or PC-1600 header.",
             content.describe()

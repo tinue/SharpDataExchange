@@ -45,3 +45,41 @@ support abbreviations. Same research as item 2, for the PC-1600:
 - [ ] Load assembly programs on both PC-1600 and PC-1500.
 - [ ] Clean/fix the serial setup on PC-1600 for both emulation (no flow control) and real
       hardware; store this information in an easy-to-reach location (real hardware: S2-Card).
+
+## 5. Disk/card image access: `dir` / `get` / `put` / `del` on Calc-U-1600 images
+
+**Floppy: done (0.2.3).** `sde dir/get/put/del` on CE-1600F `.floppy.yaml` images, the
+`sde_disk_*` C ABI on one side, and `tools/e2e_floppy.sh` (manual) proving against the
+PC-1600 ROM in Calc-U-1600 that files written by sde `LOAD`/`INPUT#`/`BLOAD` and files
+saved by the ROM read back. Layering: container spec owned by Calc-U-1600
+(`docs/Floppy-Image-Format.md` there; sde has its own strict reader/writer), filesystem
+in `src/diskfs/` (Sharp's format), conversions in `src/transfer.rs` (shared with serial).
+
+Settled along the way (see the ROM-observation notes in `PC-1600-Filesystem.md` §5.4):
+year field 6 and seconds stored; attribute `20H`; the ROM keeps the FAT copy in sync
+(so sde writes both); image byte order = ROM logical sector numbering; emulator-formatted
+floppies have an all-zero boot sector (only the FAT's `F2` identifies a formatted side).
+
+Still open:
+- [ ] **RAM-disk cards** (CE-1601M, superRAM …): geometry from the `55 80` boot sector,
+      `FF` end of chain; card instance files are spliced in place with comments preserved
+      (Calc-U-1600 `BatteryCardInstance.hpp`) and the RAM-disk byte layout across card
+      banks still needs pinning down. Program modules (`"P"`) and PC-1500 cards have no
+      filesystem — fail cleanly.
+- [ ] **Use it in Calc-U-1600**: refresh the vendored libsharpdx and, e.g., let a preset
+      put a `.bas` file straight onto a disk (`sde_disk_put`).
+- [ ] `#SEGMENT` programs on disk: sde stores the in-memory form (bare `FF`); confirm
+      with a ROM `SAVE` of a segmented program.
+- [ ] Machine code in a bank other than 0: sde writes run address `<bank>:FFFF` for "no
+      auto-start"; the ROM was only observed with bank 0 (`00FFFF`).
+- [ ] Maybe `format` (INIT) and `info`; raw `.img` import/export.
+- Out of scope: real CE-1600F disks (no flux/sector-format tooling exists).
+
+## 6. Tokenizer: line numbers after the first in `ON … GOTO/GOSUB`
+
+Found while reading a ROM-saved disk (`GLOBUS.BAS` on Calc-U-1600's `dw.img`): the ROM
+stored `ON V GOTO 310,330` (line 300) as `F1 9C 56 F1 92 1F 01 36 00 2C 33 33 30` — only
+the first target is a binary line-number reference (`1F hi lo 00`), the following ones
+stay ASCII digits. sde encodes every target as `1F hi lo 00`, so re-tokenizing that
+program comes out 2 bytes longer than the ROM's (`BIO.BAS` on the same disk re-tokenizes
+byte-identically). Check the PC-1500 behaviour too, then match the ROM.
