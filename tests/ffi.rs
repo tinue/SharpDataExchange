@@ -360,6 +360,93 @@ fn disk_put_and_delete() {
     assert_eq!(list(&side).0.len(), 4);
 }
 
+// ---- file kind ---------------------------------------------------------------------
+
+fn file_kind(data: &[u8]) -> String {
+    let mut kind = ptr::null();
+    assert_eq!(unsafe { sde_file_kind(data.as_ptr(), data.len(), &mut kind) }, SDE_OK);
+    unsafe { CStr::from_ptr(kind) }.to_str().unwrap().to_owned()
+}
+
+fn file_info(data: &[u8]) -> SdeFileInfo {
+    let mut info = std::mem::MaybeUninit::<SdeFileInfo>::uninit();
+    assert_eq!(unsafe { sde_file_info(data.as_ptr(), data.len(), info.as_mut_ptr()) }, SDE_OK);
+    unsafe { info.assume_init() }
+}
+
+fn cstr(p: *const std::ffi::c_char) -> String {
+    unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned()
+}
+
+fn ml_file(device: sharpdx::Device, name: Option<&str>, start: u32, run: Option<u32>) -> Vec<u8> {
+    sharpdx::convert::add_machine_header(&[0xFD, 0xA8, 0x9A], device, name, start, run).unwrap()
+}
+
+#[test]
+fn file_kind_tokens() {
+    assert_eq!(file_kind(&fixture("depreciation.bas")), "basic-ascii");
+    assert_eq!(file_kind(&fixture("depreciation-tokenized-ce158header.bin")), "basic-pc1500");
+    assert_eq!(file_kind(&fixture("depreciation-tokenized-pc1600header.bin")), "basic-pc1600");
+    assert_eq!(file_kind(&ml_file(sharpdx::Device::Pc1500, None, 0x4000, None)), "ml-lh5801");
+    assert_eq!(file_kind(&ml_file(sharpdx::Device::Pc1600, None, 0x4000, None)), "ml-z80");
+    assert_eq!(file_kind(b"just some text\n"), "text");
+    assert_eq!(file_kind(&[0x00, 0x01, 0x02]), "raw");
+    // An empty buffer may come with a NULL pointer.
+    let mut kind = ptr::null();
+    assert_eq!(unsafe { sde_file_kind(ptr::null(), 0, &mut kind) }, SDE_OK);
+    assert_eq!(cstr(kind), "empty");
+}
+
+#[test]
+fn file_kind_reports_damaged_but_info_keeps_the_kind() {
+    let ml = ml_file(sharpdx::Device::Pc1500, None, 0x4000, None);
+    let cut = &ml[..ml.len() - 1];
+    assert_eq!(file_kind(cut), "damaged");
+    let info = file_info(cut);
+    assert_eq!(cstr(info.kind), "ml-lh5801");
+    assert_eq!(info.problems, SDE_PROBLEM_TRUNCATED);
+    assert_ne!(info.problems & SDE_PROBLEM_FATAL, 0);
+    // Trailing bytes are not fatal.
+    let mut long = ml.clone();
+    long.push(0);
+    assert_eq!(file_kind(&long), "ml-lh5801");
+    assert_eq!(file_info(&long).problems, SDE_PROBLEM_TRAILING);
+}
+
+#[test]
+fn file_info_loader_fields() {
+    let info = file_info(&ml_file(sharpdx::Device::Pc1500, Some("prog"), 0x38C5, None));
+    assert_eq!(cstr(info.kind), "ml-lh5801");
+    assert_eq!(
+        (info.problems, info.payload_offset, info.payload_len, info.load_addr, info.run_addr, info.autorun),
+        (0, 27, 3, 0x38C5, 0xFFFF, 0)
+    );
+    assert_eq!(cstr(info.name.as_ptr()), "PROG");
+
+    let info = file_info(&ml_file(sharpdx::Device::Pc1600, None, 0x01_C000, Some(0x01_C000)));
+    assert_eq!(cstr(info.kind), "ml-z80");
+    assert_eq!(
+        (info.payload_offset, info.payload_len, info.load_addr, info.run_addr, info.autorun),
+        (16, 3, 0x01_C000, 0x01_C000, 1)
+    );
+    assert_eq!(cstr(info.name.as_ptr()), "");
+
+    let bas = fixture("depreciation-tokenized-ce158header.bin");
+    let info = file_info(&bas);
+    assert_eq!(cstr(info.kind), "basic-pc1500");
+    assert_eq!((info.payload_offset, info.payload_len, info.load_addr), (27, bas.len() - 27, 0));
+    assert_eq!(cstr(info.name.as_ptr()), "depreciation");
+}
+
+#[test]
+fn file_kind_null_arguments() {
+    let data = [1u8, 2, 3];
+    assert_eq!(unsafe { sde_file_kind(data.as_ptr(), data.len(), ptr::null_mut()) }, SDE_ERR_ARGS);
+    let mut kind = ptr::null();
+    assert_eq!(unsafe { sde_file_kind(ptr::null(), 3, &mut kind) }, SDE_ERR_ARGS);
+    assert_eq!(unsafe { sde_file_info(data.as_ptr(), data.len(), ptr::null_mut()) }, SDE_ERR_ARGS);
+}
+
 // ---- generated-file drift guards -------------------------------------------------
 
 #[test]
@@ -384,6 +471,10 @@ fn header_is_current() {
         "sde_disk_put",
         "sde_disk_delete",
         "SdeDirEntry",
+        "sde_file_kind",
+        "sde_file_info",
+        "SdeFileInfo",
+        "SDE_PROBLEM_FATAL",
     ] {
         assert!(h.contains(sym), "generated header missing {sym}");
     }

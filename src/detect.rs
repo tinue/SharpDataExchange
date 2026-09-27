@@ -12,11 +12,11 @@ pub enum Content {
     Ce158Basic,
     /// Tokenized BASIC behind a PC-1600 header.
     Pc1600Basic,
-    /// Machine language behind a CE-158 header (PC-1500 family). Not handled by
-    /// `convert`/`paths` (BASIC-only); used by `get`/`put`.
+    /// Machine language behind a CE-158 header (PC-1500 family). `convert` strips the
+    /// header; `get`/`put` transfer it.
     Ce158Machine,
-    /// Machine language behind a PC-1600 header. Not handled by `convert`/`paths`
-    /// (BASIC-only); used by `get`/`put`.
+    /// Machine language behind a PC-1600 header. `convert` strips the header;
+    /// `get`/`put` transfer it.
     Pc1600Machine,
     /// Reserve Area (key-assignment layers), binary behind a CE-158 header or
     /// headerless SDAR ASCII text. PC-1500/1500A only; not handled by `convert`.

@@ -11,6 +11,39 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-27
+
+### Added
+
+- `sde convert` adds or strips a machine-code header offline:
+  `sde convert prog.bin --start-address 38C5 [--run-address …]` writes
+  `prog.ce158.bin` (or `prog.pc1600.bin` with `-d pc1600`), and
+  `sde convert prog.ce158.bin` writes the bare code to `prog.pure.bin`. A headerless
+  file without `--start-address` is an error.
+- `sde info <file>` describes a file: BASIC (tokenized or listing), machine code,
+  Reserve Area, Variables or text, with its header, name, load/run addresses, sizes and
+  line numbers, and warns about truncated or padded files. For machine code without a
+  header it guesses the CPU (LH5801 or Z80), labelled as a guess; `-v` shows why.
+- Library: `sde_file_kind` returns what a buffer holds as a stable one-word token
+  (`basic-pc1500`, `ml-lh5801`, `ml-z80`, `raw-z80`, `text`, …, or `damaged`), and
+  `sde_file_info` fills an `SdeFileInfo` with that token, problem flags
+  (`SDE_PROBLEM_*`), the payload's offset and length, the load/run address and the
+  name, so a program loader needn't parse headers. Rust: `sharpdx::classify`,
+  `FileKind`, `FileSummary`. `sde info` shows the same token on its `kind:` line.
+- `sde convert -v` now explains each step (detected content, header found or added,
+  addresses, bytes written); before, it printed nothing extra.
+
+### Changed
+
+- `sde convert` refuses to write its output over its input file.
+
+### Fixed
+
+- macOS: release builds are stripped by Apple's linker instead of rustc's own strip
+  step, whose output macOS 27 refuses to load ("mis-aligned LINKEDIT string pool").
+  This made `cargo build --release` fail on macOS 27 and left `libsharpdx.dylib`
+  unloadable there.
+
 ## [0.3.0] - 2026-09-22
 
 ### Changed
@@ -270,7 +303,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/tinue/SharpDataExchange/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/tinue/SharpDataExchange/compare/v0.2.1...v0.2.2

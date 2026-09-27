@@ -106,6 +106,86 @@ pub fn convert_with(
     }
 }
 
+/// Wrap a headerless machine-language `payload` in a CE-158 (PC-1500 family) or
+/// PC-1600 MACHINE header. `name` supplies the CE-158 filename (unused for PC-1600).
+///
+/// Addresses are 16-bit for the PC-1500 and 24-bit (bank in the top byte) for the
+/// PC-1600. Without `run_addr` the file does not auto-start: `0xFFFF` on the PC-1500,
+/// the load address's bank with `FFFF` on the PC-1600 (what `BSAVE` writes).
+pub fn add_machine_header(
+    payload: &[u8],
+    device: Device,
+    name: Option<&str>,
+    start_addr: u32,
+    run_addr: Option<u32>,
+) -> Result<Vec<u8>> {
+    if payload.is_empty() {
+        bail!("machine-language payload is empty");
+    }
+    let (max, what) = match device {
+        Device::Pc1500 => (0xFFFF, "16 bits (PC-1500 address)"),
+        Device::Pc1600 => (0xFF_FFFF, "24 bits (bank + 16-bit address)"),
+    };
+    let run_addr = run_addr.unwrap_or(match device {
+        Device::Pc1500 => 0xFFFF,
+        Device::Pc1600 => (start_addr & 0xFF_0000) | crate::transfer::PC1600_NO_AUTORUN,
+    });
+    if start_addr > max {
+        bail!("start address {start_addr:#X} does not fit in {what}");
+    }
+    if run_addr > max {
+        bail!("run address {run_addr:#X} does not fit in {what}");
+    }
+    let max_len = match device {
+        Device::Pc1500 => 0x1_0000,
+        Device::Pc1600 => 0xFF_FFFF,
+    };
+    if payload.len() > max_len {
+        bail!("machine-language payload of {} bytes is too large for a {device:?} header", payload.len());
+    }
+    let mut out = header::build_header(header::BuildHeader {
+        device,
+        file_type: header::FileType::Machine,
+        name,
+        payload_len: payload.len(),
+        start_addr,
+        run_addr,
+    });
+    out.extend_from_slice(payload);
+    Ok(out)
+}
+
+/// A machine-language file split into its header and payload by [`strip_machine_header`].
+#[derive(Debug)]
+pub struct StrippedMachine<'a> {
+    pub header: header::ParsedHeader,
+    /// The `header.length` payload bytes.
+    pub payload: &'a [u8],
+    /// Bytes after the payload (e.g. capture noise); dropped from `payload`.
+    pub trailing: usize,
+}
+
+/// Split `input`, which must carry a CE-158 or PC-1600 MACHINE header, into header and
+/// payload. A file shorter than the header's recorded length is an error.
+pub fn strip_machine_header(input: &[u8]) -> Result<StrippedMachine<'_>> {
+    let Some(h) = header::find(input) else {
+        bail!("no CE-158 or PC-1600 header found");
+    };
+    if h.file_type != header::FileType::Machine {
+        bail!("header is not a machine-language header ({:?})", h.file_type);
+    }
+    let start = h.payload_start();
+    let end = start + h.length;
+    if end > input.len() {
+        bail!(
+            "header records {} payload bytes, but only {} follow it (truncated file?)",
+            h.length,
+            input.len() - start.min(input.len())
+        );
+    }
+    Ok(StrippedMachine { payload: &input[start..end], trailing: input.len() - end, header: h })
+}
+
 fn expand_all(listing: &str, reg: &Registry) -> String {
     let mut out = String::with_capacity(listing.len());
     for (i, line) in listing.split('\n').enumerate() {
@@ -179,5 +259,31 @@ mod tests {
         assert!(e.to_string().contains("7-bit"));
         // PC-1600 accepts it
         assert!(convert("10 PRINT \"\u{00dc}\"\n".as_bytes(), Device::Pc1600, None, true).is_ok());
+    }
+
+    #[test]
+    fn machine_header_add_and_strip() {
+        let code = [0xFD, 0xA8, 0xB5];
+        let ce = add_machine_header(&code, Device::Pc1500, Some("PROG"), 0x38C5, None).unwrap();
+        assert_eq!(ce.len(), 27 + 3);
+        let s = strip_machine_header(&ce).unwrap();
+        assert_eq!((s.payload, s.trailing), (&code[..], 0));
+        assert_eq!((s.header.start_addr, s.header.run_addr), (0x38C5, 0xFFFF));
+
+        // PC-1600: no-auto-start run address keeps the load address's bank.
+        let mut pc = add_machine_header(&code, Device::Pc1600, None, 0x01_C000, None).unwrap();
+        pc.push(0x1A);
+        let s = strip_machine_header(&pc).unwrap();
+        assert_eq!((s.payload, s.trailing), (&code[..], 1));
+        assert_eq!((s.header.start_addr, s.header.run_addr), (0x01_C000, 0x01_FFFF));
+
+        assert!(add_machine_header(&code, Device::Pc1500, None, 0x1_0000, None).is_err());
+        assert!(add_machine_header(&code, Device::Pc1600, None, 0x100_0000, None).is_err());
+        assert!(add_machine_header(&code, Device::Pc1500, None, 0x1000, Some(0x1_0000)).is_err());
+        assert!(add_machine_header(&[], Device::Pc1500, None, 0x1000, None).is_err());
+        assert!(strip_machine_header(&code).is_err());
+        assert!(strip_machine_header(&ce[..ce.len() - 1]).is_err());
+        let basic = convert(b"10 END\n", Device::Pc1500, None, true).unwrap().bytes;
+        assert!(strip_machine_header(&basic).is_err());
     }
 }
