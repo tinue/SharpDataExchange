@@ -40,3 +40,11 @@ cbindgen = "0.27"
 [profile.release]
 lto = true
 strip = true
+
+# Don't strip build-time artifacts (proc macros, build scripts): on macOS rustc strips
+# with rust-objcopy, which leaves proc-macro dylibs that macOS 27 refuses to load
+# ("mis-aligned LINKEDIT string pool"); see .cargo/config.toml. This covers the
+# `--target` builds, where that file's target rustflags don't reach host artifacts.
+# They never ship, so stripping them gains nothing.
+[profile.release.build-override]
+strip = false

@@ -6,3 +6,13 @@
 # An explicit MACOSX_DEPLOYMENT_TARGET in the environment still wins.
 [env]
 MACOSX_DEPLOYMENT_TARGET = "15.8"
+
+# macOS: strip at link time instead of with rustc's `strip` step. rustc strips Apple
+# builds with its bundled rust-objcopy, which leaves a dylib's LINKEDIT string pool
+# misaligned; macOS 27's dyld refuses to load such a dylib ("mis-aligned LINKEDIT
+# string pool") — libsharpdx.dylib as well as the proc macros rustc loads while
+# building. Apple's ld does the same job correctly: -x drops local symbols (what
+# `strip = true` does on macOS), -S drops the debug map. Only applies without an
+# explicit RUSTFLAGS (CI's test job sets one; that's fine, it doesn't ship anything).
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "strip=none", "-C", "link-arg=-Wl,-x,-S"]
