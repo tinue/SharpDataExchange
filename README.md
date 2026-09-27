@@ -200,7 +200,7 @@ On the Pocket Computer side, `get` corresponds to a **save** command (e.g.
 `CSAVE`), and `put` corresponds to a **load** command (e.g. `CLOAD`).
 
 A third command, **`convert`**, needs no Pocket Computer: it tokenizes or
-de-tokenizes a BASIC file on the PC alone.
+de-tokenizes a BASIC file, or adds or strips a machine-code header, on the PC alone.
 
 ### Disk images (Calc-U-1600)
 
@@ -266,7 +266,8 @@ one invocation when a config-file default has turned it on. Precedence:
 waits for actual data, exactly like a normal `get`) and runs detection on what
 it received, but never writes the output file. `put --dry-run` never opens the
 serial port at all — it reports what would have been sent. Neither requires
-`-v` to print its report. (`convert` does not currently have a `--dry-run` flag.)
+`-v` to print its report. (`convert` does not currently have a `--dry-run` flag; its `-v` is described
+[with the command](#convert--tokenize--de-tokenize-basic-add--strip-a-machine-code-header-offline).)
 
 ### Config file
 
@@ -417,7 +418,7 @@ otherwise the host extension). A name after the side renames it (one input file 
 `--raw` writes every file exactly as stored. `--dry-run` never changes the image.
 `--port`, `--flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
 
-### `convert` — Tokenize / de-tokenize a BASIC file offline
+### `convert` — Tokenize / de-tokenize BASIC, add / strip a machine-code header, offline
 
 ```
 sde convert [options] <infile> [<outfile>]
@@ -431,20 +432,37 @@ content:
   back with `convert`.
 * Tokenized BASIC in → ASCII BASIC out. The input **must** carry a CE-158 or
   PC-1600 header; a headerless tokenized payload is rejected.
+* Machine code **with** a CE-158 or PC-1600 header in → the bare machine code out,
+  header stripped (`prog.bin` → `prog.pure.bin`). The load and run addresses are
+  printed, since the output no longer records them. Bytes after the length the
+  header records are dropped.
+* Headerless input **with `--start-address`** → machine code behind a new MACHINE
+  header, CE-158 or PC-1600 per `--device` (`prog.bin` → `prog.ce158.bin` /
+  `prog.pc1600.bin`). `--start-address` is what marks the input as machine code,
+  so it is required: headerless input that is not a BASIC listing is an error
+  without it. An input that already has a header is an error too (strip it first).
 
-Any other content (Reserve Area, Variables, machine code, unrecognized) is
-rejected — `convert` is BASIC-only; use `get`/`put` for machine language.
+Reserve Area and Variables are rejected.
 
-`.bas` is the extension for ASCII listings, `.bbin` for tokenized BASIC. The
-input extension must agree with its actual content. With no `<infile>` and data
-on stdin, `sde` reads stdin and writes the converted bytes to stdout (in that
-mode, direction is always ASCII→tokenized).
+`.bas` is the extension for ASCII listings, `.bbin` for tokenized BASIC, `.bin` for
+machine code. The input extension must agree with its actual content. A machine-code
+output name drops a `.pure`/`.ce158`/`.pc1600` tag already in the input name
+(`prog.ce158.bin` → `prog.pure.bin`, not `prog.ce158.pure.bin`); the CE-158 header's
+filename field is that base name, upper-cased. An explicit `<outfile>` without an
+extension gets `.bin`. `convert` never overwrites its input file: if the output name
+would be the input, it stops with an error — give an `<outfile>`.
+
+With no `<infile>` and data on stdin, `sde` reads stdin and writes the converted bytes
+to stdout (in that mode, direction is always ASCII→tokenized, and `--start-address` is
+not accepted).
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Selects the keyword table + header flavor when tokenizing. Ignored when de-tokenizing (device comes from the input header). |
+| `-d`, `--device <device>` | `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Selects the keyword table + header flavor when tokenizing, and the header flavor for `--start-address`. Ignored when de-tokenizing or stripping (device comes from the input header). |
 | `--eol <eol>` | Line ending for a de-tokenized listing: `auto` (default; CRLF on Windows, LF elsewhere), `lf`, `crlf`, `cr`. Ignored when tokenizing — CR and CRLF input are always accepted. |
-| `-v`, `--verbose` | Verbose logging. |
+| `--start-address <hex>` | Add a machine-code header with this load address to a headerless input (e.g. `38C5` or `0x38C5`). PC-1500: 16-bit. PC-1600: 24-bit, bank in the top byte (e.g. `1C000` = bank 1, `C000`). |
+| `--run-address <hex>` | Auto-run address for the added header; requires `--start-address`. Default: no auto-start (`FFFF`; on the PC-1600 in the load address's bank, as `BSAVE` writes it). |
+| `-v`, `--verbose` | Explain each step on stderr: bytes read, detected content, keyword table / header used, the header found or added (flavor, size, filename, load/run address, payload length), dropped trailing bytes, bytes written. |
 
 ```
 sde convert myprogram.bas
@@ -457,6 +475,27 @@ sde convert myprogram.bbin
     → myprogram.bas  (readable listing)
 
 cat myprogram.bas | sde convert > myprogram.bbin
+
+sde convert prog.bin --start-address 38C5
+    → prog.ce158.bin  (CE-158 MACHINE header, load 38C5, no auto-start)
+
+sde convert -d pc1600 prog.bin --start-address 1C000 --run-address 1C000
+    → prog.pc1600.bin  (PC-1600 MACHINE header, bank 1)
+
+sde convert prog.ce158.bin
+    → prog.pure.bin  (header stripped)
+```
+
+With `-v`:
+
+```
+$ sde convert -v prog.bin --start-address 38C5
+Read 7 bytes from prog.bin
+Detected content: unrecognized content
+No header; treating the input as machine code (--start-address)
+Adding CE-158 MACHINE header (27 bytes): name=PROG load=0x38C5 run=0xFFFF (no auto-start), payload 7 bytes
+Wrote 34 bytes to prog.ce158.bin
+Converted prog.bin -> prog.ce158.bin (CE-158 header added, load=0x38C5)
 ```
 
 ### `config` — Read/write a default in `~/.sderc`

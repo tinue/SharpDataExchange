@@ -1,8 +1,9 @@
 //! `sde` — SharpDataExchange: PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer plus
 //! `get`/`put` serial transfer.
 //!
-//! `sde convert [options] <infile> [<outfile>]` tokenizes/de-tokenizes a BASIC listing.
-//! Direction is chosen from file content, not the name. With no `<infile>` and data on
+//! `sde convert [options] <infile> [<outfile>]` tokenizes/de-tokenizes a BASIC listing,
+//! or adds (`--start-address`) / strips a machine-language header. Direction is chosen
+//! from file content, not the name. With no `<infile>` and data on
 //! stdin, reads stdin and writes stdout.
 //!
 //! `sde get`/`sde put` transfer BASIC or machine-language data to/from a real Pocket
@@ -33,7 +34,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Tokenize / de-tokenize a BASIC file offline (direction detected from content).
+    /// Tokenize / de-tokenize a BASIC file, or add / strip a machine-language header,
+    /// offline (direction detected from content).
     Convert {
         /// Input file. Omit to read from stdin (writes tokenized/de-tokenized bytes to stdout).
         infile: Option<String>,
@@ -49,7 +51,14 @@ enum Command {
         /// Rejected: direction is always detected from content.
         #[arg(short = 'f', long, hide = true)]
         format: Option<String>,
-        /// Verbose logging.
+        /// Add a machine-language header with this load address (hex, e.g. 38C5; PC-1600:
+        /// 24-bit with the bank in the top byte) to a headerless input.
+        #[arg(long, value_parser = parse_hex_u32)]
+        start_address: Option<u32>,
+        /// Auto-run address for the added header (hex). Default: no auto-start.
+        #[arg(long, value_parser = parse_hex_u32, requires = "start_address")]
+        run_address: Option<u32>,
+        /// Explain each step (detected content, header added/stripped, output) on stderr.
         #[arg(short, long)]
         verbose: bool,
     },
@@ -268,20 +277,24 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Convert { infile, outfile, device, eol, format, verbose } => {
+        Command::Convert { infile, outfile, device, eol, format, start_address, run_address, verbose } => {
             if format.is_some() {
                 bail!("--format is not valid for convert (direction is detected from file content)");
             }
-            let _ = verbose;
             match infile {
                 Some(path) => {
-                    let msg = sharpdx::paths::run_convert(
-                        &path,
-                        outfile.as_deref(),
-                        device.into(),
-                        eol.into(),
-                    )?;
+                    let opts = sharpdx::paths::ConvertOptions {
+                        device: device.into(),
+                        eol: eol.into(),
+                        start_address,
+                        run_address,
+                        verbose,
+                    };
+                    let msg = sharpdx::paths::run_convert(&path, outfile.as_deref(), &opts)?;
                     println!("{msg}");
+                }
+                None if start_address.is_some() => {
+                    bail!("--start-address needs an input file (stdin mode only tokenizes BASIC)")
                 }
                 None => run_stdio(device.into(), eol.into())?,
             }

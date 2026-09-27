@@ -13,6 +13,20 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.1] - WIP
 
+### Added
+
+- `sde convert` adds or strips a machine-code header offline:
+  `sde convert prog.bin --start-address 38C5 [--run-address …]` writes
+  `prog.ce158.bin` (or `prog.pc1600.bin` with `-d pc1600`), and
+  `sde convert prog.ce158.bin` writes the bare code to `prog.pure.bin`. A headerless
+  file without `--start-address` is an error.
+- `sde convert -v` now explains each step (detected content, header found or added,
+  addresses, bytes written); before, it printed nothing extra.
+
+### Changed
+
+- `sde convert` refuses to write its output over its input file.
+
 ## [0.3.0] - 2026-09-22
 
 ### Changed
