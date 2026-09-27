@@ -37,6 +37,13 @@ GitHub release notes, so keep entries user-facing.
 
 - `sde convert` refuses to write its output over its input file.
 
+### Fixed
+
+- macOS: release builds are stripped by Apple's linker instead of rustc's own strip
+  step, whose output macOS 27 refuses to load ("mis-aligned LINKEDIT string pool").
+  This made `cargo build --release` fail on macOS 27 and left `libsharpdx.dylib`
+  unloadable there.
+
 ## [0.3.0] - 2026-09-22
 
 ### Changed
