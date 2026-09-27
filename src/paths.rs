@@ -88,7 +88,7 @@ pub fn run_convert(infile: &str, outfile: Option<&str>, opts: &ConvertOptions) -
             format!(
                 "Tokenizing with the {:?} keyword table, adding a {} BASIC header",
                 opts.device,
-                header_flavor(opts.device)
+                opts.device.header_name()
             ),
         );
     } else {
@@ -129,7 +129,7 @@ fn add_header(
         bail!(
             "{} already has a {} header; convert it without --start-address first to strip it",
             in_path.display(),
-            header_flavor(h.device)
+            h.device.header_name()
         );
     }
     if let Some(e @ (ASCII_EXT | TOKENIZED_EXT)) = ext_of(in_path).as_deref() {
@@ -146,13 +146,13 @@ fn add_header(
     let bytes =
         crate::convert::add_machine_header(raw, device, Some(&name), start, opts.run_address)?;
     let h = header::find(&bytes).expect("add_machine_header writes a header");
-    let w = addr_width(device);
+    let w = device.addr_hex_width();
     let run_note = if opts.run_address.is_some() { "" } else { " (no auto-start)" };
     narrate(
         opts.verbose,
         format!(
             "Adding {} MACHINE header ({} bytes): {}load=0x{:0w$X} run=0x{:0w$X}{run_note}, payload {} bytes",
-            header_flavor(device),
+            device.header_name(),
             h.header_len,
             if device == Device::Pc1500 { format!("name={name} ") } else { String::new() },
             h.start_addr,
@@ -168,7 +168,7 @@ fn add_header(
         "Converted {} -> {} ({} header added, load=0x{:0w$X})",
         in_path.display(),
         out_path.display(),
-        header_flavor(device),
+        device.header_name(),
         h.start_addr
     ))
 }
@@ -177,12 +177,12 @@ fn add_header(
 fn strip_header(in_path: &Path, outfile: Option<&str>, raw: &[u8], opts: &ConvertOptions) -> Result<String> {
     let s = crate::convert::strip_machine_header(raw)?;
     let h = &s.header;
-    let w = addr_width(h.device);
+    let w = h.device.addr_hex_width();
     narrate(
         opts.verbose,
         format!(
             "Found {} MACHINE header at offset {} ({} bytes): {}load=0x{:0w$X} run=0x{:0w$X}, payload {} bytes",
-            header_flavor(h.device),
+            h.device.header_name(),
             h.offset,
             h.header_len,
             h.filename.as_ref().map(|n| format!("name={n} ")).unwrap_or_default(),
@@ -202,7 +202,7 @@ fn strip_header(in_path: &Path, outfile: Option<&str>, raw: &[u8], opts: &Conver
         "Converted {} -> {} ({} header stripped, load=0x{:0w$X} run=0x{:0w$X})",
         in_path.display(),
         out_path.display(),
-        header_flavor(h.device),
+        h.device.header_name(),
         h.start_addr,
         h.run_addr
     ))
@@ -227,24 +227,10 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn header_flavor(device: Device) -> &'static str {
-    match device {
-        Device::Pc1500 => "CE-158",
-        Device::Pc1600 => "PC-1600",
-    }
-}
-
 fn header_tag(device: Device) -> &'static str {
     match device {
         Device::Pc1500 => CE158_TAG,
         Device::Pc1600 => PC1600_TAG,
-    }
-}
-
-fn addr_width(device: Device) -> usize {
-    match device {
-        Device::Pc1500 => 4,
-        Device::Pc1600 => 6,
     }
 }
 

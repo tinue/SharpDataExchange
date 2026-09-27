@@ -16,6 +16,25 @@ pub enum Device {
     Pc1600,
 }
 
+impl Device {
+    /// Name of this family's serial header: `CE-158` or `PC-1600`.
+    pub fn header_name(self) -> &'static str {
+        match self {
+            Device::Pc1500 => "CE-158",
+            Device::Pc1600 => "PC-1600",
+        }
+    }
+
+    /// Hex digits of a machine-code address in this family's header: 4 (16-bit) or 6
+    /// (24-bit, bank in the top byte).
+    pub fn addr_hex_width(self) -> usize {
+        match self {
+            Device::Pc1500 => 4,
+            Device::Pc1600 => 6,
+        }
+    }
+}
+
 /// `REM` token, hard-coded in both directions (`0xF1AB` in both the PC-1500 and
 /// PC-1600 tables).
 pub const REM_CODE: u16 = 0xF1AB;

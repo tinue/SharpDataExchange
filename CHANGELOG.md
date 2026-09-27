@@ -20,6 +20,10 @@ GitHub release notes, so keep entries user-facing.
   `prog.ce158.bin` (or `prog.pc1600.bin` with `-d pc1600`), and
   `sde convert prog.ce158.bin` writes the bare code to `prog.pure.bin`. A headerless
   file without `--start-address` is an error.
+- `sde info <file>` describes a file: BASIC (tokenized or listing), machine code,
+  Reserve Area, Variables or text, with its header, name, load/run addresses, sizes and
+  line numbers, and warns about truncated or padded files. For machine code without a
+  header it guesses the CPU (LH5801 or Z80), labelled as a guess; `-v` shows why.
 - `sde convert -v` now explains each step (detected content, header found or added,
   addresses, bytes written); before, it printed nothing extra.
 

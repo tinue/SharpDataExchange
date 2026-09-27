@@ -6,13 +6,15 @@
 //! from file content, not the name. With no `<infile>` and data on
 //! stdin, reads stdin and writes stdout.
 //!
+//! `sde info <file>` describes a file: content type, header, addresses, size.
+//!
 //! `sde get`/`sde put` transfer BASIC or machine-language data to/from a real Pocket
 //! Computer over serial, or to/from a Calc-U-1600 floppy image; `sde dir`/`sde del` list
 //! and delete files on such an image.
 
 use std::io::{Read, Write};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use sharpdx::config::Config;
@@ -59,6 +61,15 @@ enum Command {
         #[arg(long, value_parser = parse_hex_u32, requires = "start_address")]
         run_address: Option<u32>,
         /// Explain each step (detected content, header added/stripped, output) on stderr.
+        #[arg(short, long)]
+        verbose: bool,
+    },
+
+    /// Describe a file: content type, header, addresses, size.
+    Info {
+        /// The file to describe.
+        file: String,
+        /// Also show how a CPU guess was reached (on stderr).
         #[arg(short, long)]
         verbose: bool,
     },
@@ -297,6 +308,26 @@ fn run() -> Result<()> {
                     bail!("--start-address needs an input file (stdin mode only tokenizes BASIC)")
                 }
                 None => run_stdio(device.into(), eol.into())?,
+            }
+            Ok(())
+        }
+
+        Command::Info { file, verbose } => {
+            let data = std::fs::read(&file).with_context(|| format!("cannot read {file}"))?;
+            if data.is_empty() {
+                bail!("{file} is empty");
+            }
+            let info = sharpdx::info::describe(&data);
+            println!("{}", info.summary);
+            let width = info.details.iter().map(|(k, _)| k.len()).max().unwrap_or(0) + 1;
+            for (key, value) in &info.details {
+                println!("  {:<width$} {value}", format!("{key}:"), width = width);
+            }
+            for w in &info.warnings {
+                println!("  warning: {w}");
+            }
+            for line in &info.evidence {
+                verbosity::narrate(verbose, line);
             }
             Ok(())
         }

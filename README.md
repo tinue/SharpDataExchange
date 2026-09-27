@@ -200,7 +200,8 @@ On the Pocket Computer side, `get` corresponds to a **save** command (e.g.
 `CSAVE`), and `put` corresponds to a **load** command (e.g. `CLOAD`).
 
 A third command, **`convert`**, needs no Pocket Computer: it tokenizes or
-de-tokenizes a BASIC file, or adds or strips a machine-code header, on the PC alone.
+de-tokenizes a BASIC file, or adds or strips a machine-code header, on the PC alone,
+and **`info`** describes what a file holds.
 
 ### Disk images (Calc-U-1600)
 
@@ -497,6 +498,54 @@ Adding CE-158 MACHINE header (27 bytes): name=PROG load=0x38C5 run=0xFFFF (no au
 Wrote 34 bytes to prog.ce158.bin
 Converted prog.bin -> prog.ce158.bin (CE-158 header added, load=0x38C5)
 ```
+
+### `info` — Describe a file
+
+```
+sde info [-v] <file>
+```
+
+Reads a local file and prints what it holds: a one-line verdict, then details. Nothing
+is changed and no Pocket Computer is involved.
+
+```
+$ sde info prog.ce158.bin
+LH5801 machine code, CE-158 header
+  kind:         ml-lh5801
+  file size:    34 bytes
+  header:       CE-158, 27 bytes at offset 0
+  name:         PROG
+  load address: 0x38C5
+  end address:  0x38CB
+  run address:  none (0xFFFF, no auto-start)
+  payload:      7 bytes
+```
+
+| Verdict | Details |
+|---|---|
+| `PC-1500 tokenized BASIC program, CE-158 header` / `PC-1600 tokenized BASIC program, PC-1600 header` | header, name (CE-158), payload size, line count, line-number range |
+| `LH5801 machine code, CE-158 header` / `Z80 (SC7852) machine code, PC-1600 header` | header, name (CE-158), load / end / run address (PC-1600 with its bank), payload size |
+| `ASCII BASIC listing` | line count, line-number range, line endings, `1A` end mark, which keyword tables (PC-1500, PC-1600) tokenize it |
+| `Reserve Area, CE-158 header` / `Reserve Area, SDAR text` | name, number of assigned keys |
+| `Variables, CE-158 header` / `Variables, SDAV text` | name, number of variables |
+| `Plain text` | line count, line endings, `1A` end mark |
+| `probably LH5801 machine code, no header (heuristic)` / `probably Z80 (SC7852) machine code, no header (heuristic)` / `binary data, no header; CPU not recognized` | size |
+
+Problems appear as `warning:` lines: a payload shorter than the header says, trailing
+bytes after it, `00` noise before the header, a header cut short, a BASIC payload that
+does not de-tokenize.
+
+**Which CPU.** Headers don't record the CPU. A CE-158 header is reported as LH5801 code
+(PC-1500 family), and a PC-1600 header as Z80 code, since the PC-1600's `BSAVE` runs on
+its Z80. If the payload clearly looks like the other CPU, a `code looks like:` line
+says so. For a **headerless** binary the CPU is a guess, and is labelled as one. The
+bytes are decoded as both instruction sets, looking for undocumented opcodes,
+relative branches that land on instruction boundaries, and typical instructions,
+compared with what random bytes give. Files of 1 KB or more are judged in 512-byte
+windows, so data tables don't drown out code. Tested on 35 Z80 programs and slices of
+the PC-1500 ROM, no program got the wrong CPU; files under 16 bytes, and code too
+short or too mixed with data, are reported as not recognized. `-v` prints the numbers
+behind the guess on stderr.
 
 ### `config` — Read/write a default in `~/.sderc`
 

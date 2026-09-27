@@ -9,7 +9,12 @@ documentation = true
 documentation_style = "c"
 
 [export]
-exclude = ["REM_CODE"]
+exclude = [
+    "REM_CODE",
+    # crate-internal constants (cpu_guess, info::problem); the C names are SDE_*
+    "MIN_LEN", "WINDOW",
+    "TRUNCATED", "TRAILING", "LEADING_NOISE", "HEADER_CUT", "BAD_PAYLOAD", "FATAL",
+]
 
 [enum]
 prefix_with_name = true

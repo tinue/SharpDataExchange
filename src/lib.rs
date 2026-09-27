@@ -5,10 +5,12 @@
 //! by the CLI (`src/main.rs`) and the C ABI (`ffi`).
 
 pub mod bcd;
+pub mod cpu_guess;
 pub mod cp437;
 pub mod detect;
 pub mod detokenize;
 pub mod header;
+pub mod info;
 pub mod keywords;
 pub mod registry;
 pub mod reserve;
@@ -62,6 +64,7 @@ pub mod ffi;
 pub use convert::{convert, convert_with, ConvertOutcome};
 pub use detect::Content;
 pub use detokenize::LineEnding;
+pub use info::{classify, FileKind, FileSummary};
 pub use registry::Device;
 pub use scanner::SegmentMarker;
 
