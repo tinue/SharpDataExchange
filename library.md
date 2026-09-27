@@ -93,6 +93,8 @@ const char *sde_last_error(void);       /* thread-local; never NULL       */
 void        sde_buf_free(uint8_t *ptr, size_t len);
 
 int32_t sde_detect(const uint8_t *in, size_t in_len, SdeContent *out_kind);
+int32_t sde_file_kind(const uint8_t *in, size_t in_len, const char **out_kind);
+int32_t sde_file_info(const uint8_t *in, size_t in_len, SdeFileInfo *out);
 
 int32_t sde_tokenize(SdeDevice device, int with_header,
                      SdeSegmentMarker segment_marker, const char *name,
@@ -122,11 +124,77 @@ int32_t sde_convert(SdeDevice device, const char *name,
 * **`sde_convert`** — content-driven, mirrors the CLI: it inspects the input and
   picks the direction. `out_kind` (may be `NULL`) receives the detected input
   kind. This is the entry point most embedders want.
-* **`sde_detect`** — classify a buffer without converting it.
+* **`sde_detect`** — classify a buffer without converting it (BASIC and text only;
+  for everything else use `sde_file_kind`).
+* **`sde_file_kind`** / **`sde_file_info`** — what a file holds, as a one-word token,
+  plus where its payload is and where it goes. See
+  [File kind (program loaders)](#file-kind-program-loaders).
 
 `SdeDevice` is `SDE_DEVICE_PC1500` (0) or `SDE_DEVICE_PC1600` (1). `SdeContent` is
 `UNKNOWN` / `ASCII_BASIC` / `CE158_BASIC` / `PC1600_BASIC` / `TEXT` (plain text that is
 not a BASIC listing; before 0.2.3 such input was reported as `UNKNOWN`).
+
+### File kind (program loaders)
+
+`sde_file_kind` writes a static, NUL-terminated one-word token to `*out_kind` (do
+not free it). The tokens are part of the stable API and are never renamed:
+
+| token | the buffer holds |
+|---|---|
+| `basic-ascii` | an ASCII BASIC listing |
+| `basic-pc1500` | tokenized BASIC behind a CE-158 header |
+| `basic-pc1600` | tokenized BASIC behind a PC-1600 header |
+| `ml-lh5801` | machine code behind a CE-158 header |
+| `ml-z80` | machine code behind a PC-1600 header |
+| `raw-lh5801` / `raw-z80` | headerless binary whose code looks like that CPU's (a **heuristic guess**) |
+| `raw` | headerless binary, CPU not recognized |
+| `reserve` / `reserve-text` | Reserve Area behind a CE-158 header / as SDAR text |
+| `variables` / `variables-text` | Variables behind a CE-158 header / as SDAV text |
+| `text` | plain text |
+| `empty` | nothing (`in_len == 0`; `in` may then be `NULL`) |
+| `damaged` | a file with a fatal problem (below) |
+
+Headers don't record the CPU: a CE-158 header is taken as LH5801 code (PC-1500
+family), a PC-1600 header as Z80 code (the PC-1600's `BSAVE` runs on its Z80). For a
+headerless binary the CPU is guessed from the code (see `sde info` in the README).
+
+`sde_file_info` fills an `SdeFileInfo`. Nothing in it needs freeing:
+
+| field | meaning |
+|---|---|
+| `kind` | the token, as above, but never `damaged`: check `problems` |
+| `problems` | `SDE_PROBLEM_*` bits |
+| `payload_offset` | first payload byte in `in`: after the header, `0` if headerless |
+| `payload_len` | payload bytes present in `in` (never past its end, even when truncated) |
+| `load_addr`, `run_addr` | `ml-*` only: load and run address (PC-1600: bank in bits 16–23); else `0` |
+| `autorun` | `ml-*` only: `1` if `run_addr` really starts the program (its low 16 bits are not `FFFF`) |
+| `name` | CE-158 header filename or the SDAR/SDAV name; UTF-8, NUL-terminated, `""` if none |
+
+| `SDE_PROBLEM_*` | value | meaning |
+|---|---|---|
+| `TRUNCATED` | `1` | the payload is shorter than the header says |
+| `TRAILING` | `2` | bytes follow the payload |
+| `LEADING_NOISE` | `4` | `00` bytes precede the header |
+| `HEADER_CUT` | `8` | header magic, but no complete header with a known type |
+| `BAD_PAYLOAD` | `16` | tokenized BASIC that doesn't de-tokenize, Reserve/Variables that don't decode |
+| `FATAL` | `25` | `TRUNCATED \| HEADER_CUT \| BAD_PAYLOAD`: don't load the file |
+
+A loader:
+
+```c
+SdeFileInfo fi;
+if (sde_file_info(buf, len, &fi) != SDE_OK || (fi.problems & SDE_PROBLEM_FATAL)) {
+    return reject("unusable file");
+}
+if (strcmp(fi.kind, "ml-lh5801") == 0) {
+    memcpy(&pc1500_ram[fi.load_addr], buf + fi.payload_offset, fi.payload_len);
+    if (fi.autorun) start_at(fi.run_addr);
+} else if (strcmp(fi.kind, "basic-pc1500") == 0) {
+    load_basic(buf + fi.payload_offset, fi.payload_len);
+} else {
+    return reject(fi.kind);
+}
+```
 
 ### Line endings
 

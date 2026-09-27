@@ -24,6 +24,8 @@ pub const SDE_ERR_ARGS: i32 = -3;
 
 mod disk;
 pub use disk::*;
+mod info;
+pub use info::*;
 
 /// Target machine family.
 #[repr(C)]

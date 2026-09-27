@@ -547,6 +547,10 @@ the PC-1500 ROM, no program got the wrong CPU; files under 16 bytes, and code to
 short or too mixed with data, are reported as not recognized. `-v` prints the numbers
 behind the guess on stderr.
 
+The `kind:` line is the same one-word token the library returns from
+`sde_file_kind` / `sde_file_info` (`ml-lh5801`, `basic-pc1600`, `raw-z80`, …) — see
+[File kind (program loaders)](library.md#file-kind-program-loaders).
+
 ### `config` — Read/write a default in `~/.sderc`
 
 ```

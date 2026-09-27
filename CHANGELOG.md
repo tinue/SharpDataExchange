@@ -24,6 +24,12 @@ GitHub release notes, so keep entries user-facing.
   Reserve Area, Variables or text, with its header, name, load/run addresses, sizes and
   line numbers, and warns about truncated or padded files. For machine code without a
   header it guesses the CPU (LH5801 or Z80), labelled as a guess; `-v` shows why.
+- Library: `sde_file_kind` returns what a buffer holds as a stable one-word token
+  (`basic-pc1500`, `ml-lh5801`, `ml-z80`, `raw-z80`, `text`, …, or `damaged`), and
+  `sde_file_info` fills an `SdeFileInfo` with that token, problem flags
+  (`SDE_PROBLEM_*`), the payload's offset and length, the load/run address and the
+  name, so a program loader needn't parse headers. Rust: `sharpdx::classify`,
+  `FileKind`, `FileSummary`. `sde info` shows the same token on its `kind:` line.
 - `sde convert -v` now explains each step (detected content, header found or added,
   addresses, bytes written); before, it printed nothing extra.
 
