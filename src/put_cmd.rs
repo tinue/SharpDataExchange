@@ -33,10 +33,10 @@ pub struct PutOptions {
 ///   stated default; `put` doesn't restate one).
 /// - Header present, PC-1500 family: an explicit PC-1600-family `--device` is a
 ///   mismatch error; otherwise the explicit device (if PC-1500-family) or `pc1500`.
-/// - Header present, PC-1600 family: an explicit PC-1500-family `--device` is a
-///   mismatch error. An explicit `pc1600`/`pc1600emul` is kept as-is (the header can't
-///   tell real hardware from the emulator). With neither given, this is genuinely
-///   ambiguous — error rather than guess, consistent with §8's "abort, don't guess".
+/// - Header present, PC-1600 family: the file can only be meant for a PC-1600, so the
+///   device is `pc1600` — an explicit PC-1500-family `--device` is overridden (the
+///   caller warns), not an error. An explicit `pc1600emul` is kept (the header can't
+///   tell real hardware from the emulator; real hardware is the default).
 pub fn resolve_effective_device(
     explicit: Option<PocketDevice>,
     header: Option<&ParsedHeader>,
@@ -53,14 +53,8 @@ pub fn resolve_effective_device(
             None => Ok(PocketDevice::Pc1500),
         },
         crate::registry::Device::Pc1600 => match explicit {
-            Some(d) if d.is_pc1500_family() => bail!(
-                "file has a PC-1600 header, but --device {d} is PC-1500 family"
-            ),
-            Some(d) => Ok(d),
-            None => bail!(
-                "file has a PC-1600 header; specify --device pc1600 or --device pc1600emul \
-                 to select the transport"
-            ),
+            Some(PocketDevice::Pc1600Emul) => Ok(PocketDevice::Pc1600Emul),
+            _ => Ok(PocketDevice::Pc1600),
         },
     }
 }
@@ -105,6 +99,9 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     }
 
     let device = resolve_effective_device(opts.device, header.as_ref())?;
+    if let Some(explicit) = opts.device.filter(|d| *d != device) {
+        eprintln!("WARNING: file has a PC-1600 header; using --device {device} instead of {explicit}");
+    }
     device.check_flow_control(opts.flow_control)?;
     crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
@@ -236,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_device_pc1600_header_ambiguous_without_flag_errors() {
+    fn resolve_device_pc1600_header_defaults_to_pc1600() {
         let h = ParsedHeader {
             device: RegDevice::Pc1600,
             file_type: FileType::Basic,
@@ -247,8 +244,12 @@ mod tests {
             run_addr: 0,
             filename: None,
         };
-        let err = resolve_effective_device(None, Some(&h)).unwrap_err();
-        assert!(err.to_string().contains("pc1600emul"));
+        assert_eq!(resolve_effective_device(None, Some(&h)).unwrap(), PocketDevice::Pc1600);
+        // An explicit PC-1500-family device is overridden, not an error.
+        assert_eq!(
+            resolve_effective_device(Some(PocketDevice::Pc1500), Some(&h)).unwrap(),
+            PocketDevice::Pc1600
+        );
     }
 
     #[test]

@@ -13,6 +13,13 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.2] - WIP
 
+### Changed
+
+- `sde put` of a file with a PC-1600 header (BASIC or machine code) now uses
+  `--device pc1600` automatically instead of asking for `--device`; an explicit
+  `pc1500`/`pc1500a` is overridden with a warning rather than rejected.
+  `--device pc1600emul` is still honored.
+
 ## [0.3.1] - 2026-09-27
 
 ### Added
