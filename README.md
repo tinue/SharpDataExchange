@@ -229,7 +229,7 @@ inserted disk in memory and rewrites its file shortly after every disk access, w
 would silently undo sde's changes.
 
 The container format is specified in Calc-U-1600's `docs/Floppy-Image-Format.md`; the
-filesystem inside a side is Sharp's (see the `SharpPC1500Reference` corpus,
+filesystem inside a side is Sharp's (see the `Sharp1500-1600-Ref` corpus,
 `PC-1600-Filesystem.md` §5).
 
 ### Who goes first
