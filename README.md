@@ -6,7 +6,7 @@ PC-1500A / PC-1600 pocket computer over serial, read and write files on
 tokenize/de-tokenize BASIC listings offline — no Java runtime, a single
 self-contained binary. This is the
 Rust reimplementation of the Java
-[`SharpDataExchange`](https://github.com/tinue/SharpDataExchange), with
+[`SharpDataExchangeJava`](https://github.com/tinue/SharpDataExchangeJava), with
 **byte-identical `convert` output** to the Java tool on the checked-in fixtures.
 
 Embedding this in your own application (C / C++ / Swift / Rust)? See
