@@ -1,6 +1,6 @@
 //! The PC-1600 FAT-style filesystem on one CE-1600F floppy side.
 //!
-//! Sharp's format, documented in `SharpPC1500Reference/PC-1600/PC-1600-Filesystem.md` §5
+//! Sharp's format, documented in `Sharp1500-1600-Ref/PC-1600/PC-1600-Filesystem.md` §5
 //! and `PC-1600-Peripherals-Hardware.md` §2; nothing here knows about the container file
 //! the side came from (see [`crate::floppy_image`]). A [`Volume`] works on a caller-owned
 //! 64 KB buffer, so it serves the CLI and the C ABI alike.

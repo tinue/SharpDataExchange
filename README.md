@@ -6,7 +6,7 @@ PC-1500A / PC-1600 pocket computer over serial, read and write files on
 tokenize/de-tokenize BASIC listings offline — no Java runtime, a single
 self-contained binary. This is the
 Rust reimplementation of the Java
-[`SharpDataExchange`](https://github.com/tinue/SharpDataExchange), with
+[`SharpDataExchangeJava`](https://github.com/tinue/SharpDataExchangeJava), with
 **byte-identical `convert` output** to the Java tool on the checked-in fixtures.
 
 Embedding this in your own application (C / C++ / Swift / Rust)? See
@@ -122,21 +122,21 @@ your platform, use `-p`/`--port` to specify the port explicitly.
 To exchange data with a PC-1600 emulator instead of real hardware, use
 `--device pc1600emul`. The emulator is reached over a host pseudo-terminal, which
 the Calc-U-1600 emulator creates while it runs as a file always named
-`calcu1600.serial` inside some directory. Pseudo-terminal paths are never
+`calcu1600-rs232c.serial` inside some directory. Pseudo-terminal paths are never
 auto-detected, so `sde` needs to know that directory — either given
-per-invocation with `--port <full-path-to-calcu1600.serial>`, or configured
+per-invocation with `--port <full-path-to-calcu1600-rs232c.serial>`, or configured
 once as a default **directory** (see [Config file](#config-file)):
 
 ```
 sde config set pc1600emul.port /tmp/my-emulator-dir
-sde put myprogram.bas --device pc1600emul       # uses /tmp/my-emulator-dir/calcu1600.serial
+sde put myprogram.bas --device pc1600emul       # uses /tmp/my-emulator-dir/calcu1600-rs232c.serial
 ```
 
 `sde config set pc1600emul.port <dir>` stores the *directory*, not the full
-port path — `sde` always appends the fixed filename `calcu1600.serial` itself.
+port path — `sde` always appends the fixed filename `calcu1600-rs232c.serial` itself.
 If you never set this, the default directory is `/tmp`, so
 `--device pc1600emul` with no `--port` and no config resolves to
-`/tmp/calcu1600.serial` out of the box.
+`/tmp/calcu1600-rs232c.serial` out of the box.
 
 `pc1600emul` sends the same data as `pc1600` and, like `pc1600` by default, uses
 no RTS/CTS hardware flow control and paces the transfer like the PC-1500. A
@@ -229,7 +229,7 @@ inserted disk in memory and rewrites its file shortly after every disk access, w
 would silently undo sde's changes.
 
 The container format is specified in Calc-U-1600's `docs/Floppy-Image-Format.md`; the
-filesystem inside a side is Sharp's (see the `SharpPC1500Reference` corpus,
+filesystem inside a side is Sharp's (see the `Sharp1500-1600-Ref` corpus,
 `PC-1600-Filesystem.md` §5).
 
 ### Who goes first
@@ -282,7 +282,7 @@ Two keys are used today:
 
 | key | meaning |
 |---|---|
-| `pc1600emul.port` | **directory** holding the `pc1600emul` pseudo-terminal socket, whose filename is always `calcu1600.serial`. Defaults to `/tmp` when unset — i.e. `/tmp/calcu1600.serial` — if `--port` is also not given. |
+| `pc1600emul.port` | **directory** holding the `pc1600emul` pseudo-terminal socket, whose filename is always `calcu1600-rs232c.serial`. Defaults to `/tmp` when unset — i.e. `/tmp/calcu1600-rs232c.serial` — if `--port` is also not given. |
 | `verbose` | default verbosity (`true`/`false`) when neither `-v` nor `-q` is given |
 
 An explicit `--port`/`-v`/`-q` on the command line always overrides the config
@@ -352,7 +352,7 @@ detected from the file's bytes, never its name.
 
 | Option | Description |
 |---|---|
-| `-d`, `--device <device>` | Target device. Optional if the file already carries a recognized header — the device is then inferred from it (an explicit `--device` of the wrong *family* is an error; if the header is PC-1600 and neither `pc1600` nor `pc1600emul` is given, that's ambiguous and also an error — `sde` doesn't guess). Without a header and without `--device`, defaults to `pc1500`. |
+| `-d`, `--device <device>` | Target device. Optional if the file already carries a recognized header — the device is then inferred from it. A PC-1600 header always means `pc1600` (or `pc1600emul`, if given); a PC-1500-family `--device` is overridden with a warning. A CE-158 header with a PC-1600-family `--device` is an error. Without a header and without `--device`, defaults to `pc1500`. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted). |
 | `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; CTS is used while sending). Off by default: a `pc1600` transfer is then paced byte-by-byte like `pc1600emul`. With it, a real `pc1600` is sent unpaced and the handshake throttles the transfer. Only try this if `put` fails with `ERROR 142`, and set `RCVSTAT "COM1:",24` on the PC-1600 to match; see [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | For headerless ASCII BASIC input: `binary` (default when omitted) tokenizes it before sending; `ascii` sends it line-by-line, untokenized (slower; mirrors the device's `CLOADa`/ASCII load). On input detected as [text](#text), `binary` forces it to be tokenized as a BASIC listing — the override when a listing is not recognized as BASIC. Has no effect on machine language (always sent as raw binary) or on input that already has a header (always sent as-is). |
@@ -833,12 +833,12 @@ On the PC-1600: `LOAD "X:HELLO.BAS"`, `OPEN "X:NOTES.TXT" FOR INPUT AS #1`,
 
 ```
 sde config set pc1600emul.port /tmp/my-emulator-dir
-sde put myprogram.bas --device pc1600emul     # uses /tmp/my-emulator-dir/calcu1600.serial
+sde put myprogram.bas --device pc1600emul     # uses /tmp/my-emulator-dir/calcu1600-rs232c.serial
 sde get --device pc1600emul
 ```
 
 Or rely on the built-in `/tmp` default and skip `config set` entirely, if your
-emulator happens to create `/tmp/calcu1600.serial`.
+emulator happens to create `/tmp/calcu1600-rs232c.serial`.
 
 ### Preview a `put` without touching hardware
 

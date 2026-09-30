@@ -11,6 +11,20 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-30
+
+### Changed
+
+- `sde put` of a file with a PC-1600 header (BASIC or machine code) now uses
+  `--device pc1600` automatically instead of asking for `--device`; an explicit
+  `pc1500`/`pc1500a` is overridden with a warning rather than rejected.
+  `--device pc1600emul` is still honored.
+- **Breaking:** `--device pc1600emul` now looks for `calcu1600-rs232c.serial`
+  (was `calcu1600.serial`). Calc-U-1600 0.7.0 names its serial port files after
+  their connector, and this is the PC-1600's RS-232C port. A configured
+  `pc1600emul.port` directory stays valid. With an older Calc-U-1600, pass the
+  full path instead: `--port <dir>/calcu1600.serial`.
+
 ## [0.3.1] - 2026-09-27
 
 ### Added
@@ -303,7 +317,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/tinue/SharpDataExchange/compare/v0.2.2...v0.2.3
