@@ -11,6 +11,8 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.3] - WIP
+
 ## [0.3.2] - 2026-09-30
 
 ### Changed
@@ -317,7 +319,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...v0.3.0
