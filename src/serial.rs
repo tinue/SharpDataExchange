@@ -408,13 +408,13 @@ mod tests {
         entries.insert(crate::config::KEY_PC1600EMUL_PORT.to_string(), "/tmp/emul".to_string());
         let config = crate::config::Config::from_entries_for_test(entries);
         let port = resolve_port(PocketDevice::Pc1600Emul, None, &config).unwrap();
-        assert_eq!(port, "/tmp/emul/calcu1600.serial");
+        assert_eq!(port, "/tmp/emul/calcu1600-rs232c.serial");
     }
 
     #[test]
     fn resolve_port_emulator_defaults_to_tmp_without_config() {
         let config = crate::config::Config::from_entries_for_test(Default::default());
         let port = resolve_port(PocketDevice::Pc1600Emul, None, &config).unwrap();
-        assert_eq!(port, "/tmp/calcu1600.serial");
+        assert_eq!(port, "/tmp/calcu1600-rs232c.serial");
     }
 }

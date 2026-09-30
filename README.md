@@ -122,21 +122,21 @@ your platform, use `-p`/`--port` to specify the port explicitly.
 To exchange data with a PC-1600 emulator instead of real hardware, use
 `--device pc1600emul`. The emulator is reached over a host pseudo-terminal, which
 the Calc-U-1600 emulator creates while it runs as a file always named
-`calcu1600.serial` inside some directory. Pseudo-terminal paths are never
+`calcu1600-rs232c.serial` inside some directory. Pseudo-terminal paths are never
 auto-detected, so `sde` needs to know that directory — either given
-per-invocation with `--port <full-path-to-calcu1600.serial>`, or configured
+per-invocation with `--port <full-path-to-calcu1600-rs232c.serial>`, or configured
 once as a default **directory** (see [Config file](#config-file)):
 
 ```
 sde config set pc1600emul.port /tmp/my-emulator-dir
-sde put myprogram.bas --device pc1600emul       # uses /tmp/my-emulator-dir/calcu1600.serial
+sde put myprogram.bas --device pc1600emul       # uses /tmp/my-emulator-dir/calcu1600-rs232c.serial
 ```
 
 `sde config set pc1600emul.port <dir>` stores the *directory*, not the full
-port path — `sde` always appends the fixed filename `calcu1600.serial` itself.
+port path — `sde` always appends the fixed filename `calcu1600-rs232c.serial` itself.
 If you never set this, the default directory is `/tmp`, so
 `--device pc1600emul` with no `--port` and no config resolves to
-`/tmp/calcu1600.serial` out of the box.
+`/tmp/calcu1600-rs232c.serial` out of the box.
 
 `pc1600emul` sends the same data as `pc1600` and, like `pc1600` by default, uses
 no RTS/CTS hardware flow control and paces the transfer like the PC-1500. A
@@ -282,7 +282,7 @@ Two keys are used today:
 
 | key | meaning |
 |---|---|
-| `pc1600emul.port` | **directory** holding the `pc1600emul` pseudo-terminal socket, whose filename is always `calcu1600.serial`. Defaults to `/tmp` when unset — i.e. `/tmp/calcu1600.serial` — if `--port` is also not given. |
+| `pc1600emul.port` | **directory** holding the `pc1600emul` pseudo-terminal socket, whose filename is always `calcu1600-rs232c.serial`. Defaults to `/tmp` when unset — i.e. `/tmp/calcu1600-rs232c.serial` — if `--port` is also not given. |
 | `verbose` | default verbosity (`true`/`false`) when neither `-v` nor `-q` is given |
 
 An explicit `--port`/`-v`/`-q` on the command line always overrides the config
@@ -833,12 +833,12 @@ On the PC-1600: `LOAD "X:HELLO.BAS"`, `OPEN "X:NOTES.TXT" FOR INPUT AS #1`,
 
 ```
 sde config set pc1600emul.port /tmp/my-emulator-dir
-sde put myprogram.bas --device pc1600emul     # uses /tmp/my-emulator-dir/calcu1600.serial
+sde put myprogram.bas --device pc1600emul     # uses /tmp/my-emulator-dir/calcu1600-rs232c.serial
 sde get --device pc1600emul
 ```
 
 Or rely on the built-in `/tmp` default and skip `config set` entirely, if your
-emulator happens to create `/tmp/calcu1600.serial`.
+emulator happens to create `/tmp/calcu1600-rs232c.serial`.
 
 ### Preview a `put` without touching hardware
 

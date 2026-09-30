@@ -19,6 +19,9 @@ GitHub release notes, so keep entries user-facing.
   `--device pc1600` automatically instead of asking for `--device`; an explicit
   `pc1500`/`pc1500a` is overridden with a warning rather than rejected.
   `--device pc1600emul` is still honored.
+- `--device pc1600emul` looks for `calcu1600-rs232c.serial` (was
+  `calcu1600.serial`), the name Calc-U-1600 0.7.0 gives its PC-1600 RS-232C
+  port file. A configured `pc1600emul.port` directory stays valid.
 
 ## [0.3.1] - 2026-09-27
 

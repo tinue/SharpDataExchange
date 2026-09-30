@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 pub const KEY_PC1600EMUL_PORT: &str = "pc1600emul.port";
 /// Fixed filename of the `pc1600emul` pseudo-terminal socket within the configured
 /// (or default) directory — matches the Calc-U-1600 emulator's own socket name.
-pub const PC1600EMUL_SOCKET_FILENAME: &str = "calcu1600.serial";
+pub const PC1600EMUL_SOCKET_FILENAME: &str = "calcu1600-rs232c.serial";
 /// Directory used for the `pc1600emul` socket when [`KEY_PC1600EMUL_PORT`] has never
 /// been set.
 pub const DEFAULT_PC1600EMUL_DIR: &str = "/tmp";
