@@ -11,19 +11,17 @@ pub fn decode_bas_listing(raw: &[u8]) -> String {
 }
 
 fn normalize(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\r' {
-            if chars.peek() == Some(&'\n') {
-                chars.next();
-            }
-            out.push('\n');
-        } else {
-            out.push(ch);
-        }
-    }
-    out.trim_end_matches('\u{001A}').to_string()
+    normalize_newlines(s).trim_end_matches('\u{001A}').to_string()
+}
+
+/// CRLF / CR -> LF.
+pub(crate) fn normalize_newlines(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// `bytes` up to the first `1A` (SUB / DOS end-of-file), which ends a device text file.
+pub(crate) fn before_eof(bytes: &[u8]) -> &[u8] {
+    bytes.split(|&b| b == 0x1A).next().unwrap_or(bytes)
 }
 
 /// First character with a code point `> 0x7F`, as `(line, col, ch)` with 1-based line and

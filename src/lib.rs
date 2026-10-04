@@ -17,6 +17,8 @@ pub mod reserve;
 pub mod scanner;
 pub mod text;
 pub mod variables;
+/// Cassette-tape WAV files (PC-1500 + CE-150, PC-1600 + CE-1600P).
+pub mod wav;
 
 mod abbrev;
 pub mod convert;
@@ -55,6 +57,11 @@ pub mod get_cmd;
 /// CLI-only: `put` orchestration.
 #[cfg(feature = "serial")]
 pub mod put_cmd;
+/// CLI-only: the cassette-WAV forms of `get`/`put`/`convert`.
+pub mod wav_cmd;
+/// CLI-only: `put -f wav` playback through the default audio output.
+#[cfg(feature = "audio")]
+pub mod audio_out;
 /// CLI-only: `dir`/`del` and the disk-image forms of `get`/`put`.
 #[cfg(feature = "cli")]
 pub mod disk_cmd;

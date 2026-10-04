@@ -46,7 +46,7 @@ impl Receiver {
 /// buffer reaches the header-derived expected length, or the idle-timeout watchdog
 /// fires. The watchdog only starts once the first byte has arrived — `get` blocks
 /// indefinitely waiting for the Pocket Computer to start sending, matching the
-/// "start `get` first, then trigger the device-side save" workflow (§1).
+/// "start `get` first, then trigger the device-side save" workflow.
 pub fn receive_until_done<T: Transport>(
     transport: &mut T,
     idle_timeout: Duration,

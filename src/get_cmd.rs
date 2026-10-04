@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::detokenize::LineEnding;
 use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
-use crate::serial::{self, RealTransport};
+use crate::serial;
 use crate::transfer::{self, GetSpec};
 use crate::{filename, receiver};
 
@@ -20,6 +20,8 @@ pub struct GetOptions {
     pub device: PocketDevice,
     pub port: Option<String>,
     pub format: Format,
+    /// `-f wav`: write the received file as a cassette WAV instead.
+    pub tape: Option<crate::wav_cmd::TapeOptions>,
     pub skip_header: bool,
     /// Line ending for listings / text written to the host file.
     pub eol: LineEnding,
@@ -49,10 +51,14 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     opts.device.check_flow_control(opts.flow_control)?;
     let port_name = serial::resolve_port(opts.device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, opts.device, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, opts.device, opts.flow_control)?;
     let idle_timeout = Duration::from_millis(opts.device.idle_timeout_ms());
     let raw = receiver::receive_until_done(&mut transport, idle_timeout, opts.raw)?;
     crate::verbosity::narrate(opts.verbose, format!("Received {} bytes", raw.len()));
+
+    if let Some(tape) = &opts.tape {
+        return write_received_tape(&raw, opts, tape);
+    }
 
     let outcome = if opts.raw {
         process_raw(&raw, opts)?
@@ -74,7 +80,26 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     Ok(format!("Saving to {}", outcome.path))
 }
 
-/// `--raw` mode (§4): strip a same-family header if found, leave a wrong-family one in
+/// `-f wav`: the received file as a cassette WAV, named like a normal `get` names it.
+fn write_received_tape(
+    raw: &[u8],
+    opts: &GetOptions,
+    tape: &crate::wav_cmd::TapeOptions,
+) -> Result<String> {
+    let device = opts.device.to_registry_device();
+    let files = crate::wav_cmd::tape_files_from(raw, "unnamed", device, None, None, tape)?;
+    let header = header::find(raw);
+    let path = resolve_output_path(opts.output_file.as_deref(), header.as_ref(), "wav");
+    crate::wav_cmd::write_tape(
+        &files,
+        std::path::Path::new(&path),
+        tape,
+        opts.dry_run,
+        opts.verbose,
+    )
+}
+
+/// `--raw` mode: strip a same-family header if found, leave a wrong-family one in
 /// place, then report byte count + 16-bit checksum. Requires an explicit output file
 /// (checked by the caller before the port is even opened).
 fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
@@ -82,14 +107,14 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let mut bytes = raw.to_vec();
 
     if let Some(h) = header::find(raw) {
-        let same_family = family_matches(h.device, opts.device);
+        let same_family = h.device == opts.device.to_registry_device();
         if same_family {
             crate::verbosity::narrate(opts.verbose, "Stripping detected header");
             bytes = [&raw[..h.offset], &raw[h.payload_start()..]].concat();
         } else {
             crate::verbosity::narrate(
                 opts.verbose,
-                format!("Not stripping {} header, as device is {}", header_flavor(h.device), opts.device),
+                format!("Not stripping {} header, as device is {}", h.device.header_name(), opts.device),
             );
         }
     }
@@ -104,22 +129,7 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     Ok(Outcome { path, bytes, summary: format!("checksum 0x{checksum:04X}") })
 }
 
-fn family_matches(header_device: crate::registry::Device, cli_device: PocketDevice) -> bool {
-    match header_device {
-        crate::registry::Device::Pc1500 => cli_device.is_pc1500_family(),
-        crate::registry::Device::Pc1600 => cli_device.is_pc1600_family(),
-    }
-}
-
-fn header_flavor(device: crate::registry::Device) -> &'static str {
-    match device {
-        crate::registry::Device::Pc1500 => "CE-158",
-        crate::registry::Device::Pc1600 => "PC-1600",
-    }
-}
-
-/// Non-raw mode (§4 steps 3-6): detect content, branch on format, derive the output
-/// filename.
+/// Normal mode: detect content, convert per `--format`, derive the output filename.
 fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let header = header::find(raw);
 
@@ -146,7 +156,8 @@ fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     Ok(Outcome { path, bytes, summary: content.describe().to_string() })
 }
 
-/// Filename resolution per §4 step 5.
+/// The output file name: the given one, else the header's, else `unnamed`; `ext` is
+/// appended when the name has none.
 fn resolve_output_path(given: Option<&str>, header: Option<&ParsedHeader>, ext: &str) -> String {
     if let Some(name) = given {
         return filename::append_ext_if_missing(name, ext);
@@ -179,6 +190,7 @@ mod tests {
             flow_control: false,
             verbose: false,
             output_file: None,
+            tape: None,
         }
     }
 

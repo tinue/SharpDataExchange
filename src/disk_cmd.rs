@@ -126,7 +126,7 @@ fn describe_kind(kind: DiskFileKind) -> String {
     match kind {
         DiskFileKind::Basic { .. } => "BASIC".into(),
         DiskFileKind::Machine { load, run, .. } => {
-            if run & 0xFFFF == transfer::PC1600_NO_AUTORUN {
+            if !transfer::is_autorun(run) {
                 format!("machine, load {load:06X}")
             } else {
                 format!("machine, load {load:06X}, run {run:06X}")
@@ -142,6 +142,8 @@ fn describe_kind(kind: DiskFileKind) -> String {
 
 pub struct DiskGetOptions {
     pub format: Option<Format>,
+    /// `-f wav`: write each file as a cassette WAV (PC-1600 / CE-1600P format).
+    pub tape: Option<crate::wav_cmd::TapeOptions>,
     pub skip_header: bool,
     pub raw: bool,
     pub eol: LineEnding,
@@ -159,16 +161,7 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
     let vol = Volume::open_floppy_side(img.side(side))?;
 
     let wildcard = Pattern::is_wildcard(name);
-    let entries = if wildcard {
-        let found = vol.glob(&Pattern::parse(name)?);
-        if found.is_empty() {
-            return Err(DiskError::NotFound(name.to_string()).into());
-        }
-        found
-    } else {
-        let n = FileName::parse(name)?;
-        vec![vol.find(&n).ok_or_else(|| DiskError::NotFound(n.to_string()))?]
-    };
+    let entries = vol.matching(name)?;
 
     let out_dir = match output {
         Some(p) if Path::new(p).is_dir() => Some(PathBuf::from(p)),
@@ -180,6 +173,25 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
     let mut msgs = Vec::new();
     for e in &entries {
         let stored = vol.read(e)?;
+        if let Some(tape) = &o.tape {
+            let files = crate::wav_cmd::tape_files_from(
+                &stored,
+                &e.name.stem(),
+                Device::Pc1600,
+                None,
+                None,
+                tape,
+            )
+            .with_context(|| e.name.to_string())?;
+            let path = match &out_dir {
+                Some(dir) => dir.join(format!("{}.wav", e.name.stem())),
+                None => crate::wav_cmd::wav_output(output, PathBuf::new()),
+            };
+            msgs.push(crate::wav_cmd::write_tape(
+                &files, &path, tape, o.dry_run, o.verbose,
+            )?);
+            continue;
+        }
         let (bytes, host_name, what) = if o.raw {
             (stored, e.name.to_string(), "unchanged".to_string())
         } else {
@@ -188,7 +200,7 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
             for note in &x.notes {
                 eprintln!("WARNING: {}: {note}", e.name);
             }
-            let name = host_name_for(&e.name, &x, o.format);
+            let name = host_name_for(&e.name, &x);
             (x.bytes, name, x.content.describe().to_string())
         };
         let path = match &out_dir {
@@ -196,26 +208,21 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
             None => PathBuf::from(output.expect("out_dir is None only with an output file")),
         };
         narrate(o.verbose, format!("{}: {} bytes on disk, {what}", e.name, e.size));
-        if o.dry_run {
-            msgs.push(format!("Dry run: would write {} bytes to {} ({what})", bytes.len(), path.display()));
-        } else {
-            std::fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
-            msgs.push(format!("{} -> {} ({what}, {} bytes)", e.name, path.display(), bytes.len()));
-        }
+        msgs.push(crate::paths::write_got_file(&e.name.to_string(), &path, &bytes, &what, o.dry_run)?);
     }
     Ok(msgs.join("\n"))
 }
 
-/// Host file name for a file got from the disk: the stored stem, and `.bas` for a
-/// de-tokenized listing, `.bin` for tokenized BASIC saved as binary, `.bin` for machine
-/// code without an extension; otherwise the stored name unchanged.
-fn host_name_for(name: &FileName, x: &transfer::Extracted, format: Option<Format>) -> String {
+/// Host file name for a file got from the disk: the stored stem, and for BASIC the host
+/// extension of what is written (`.bas` listing, `.bbas` tokenized; on the disk both are
+/// `.BAS`), `.bin` for machine code without an extension; otherwise the stored name
+/// unchanged.
+fn host_name_for(name: &FileName, x: &transfer::Extracted) -> String {
     let file_type = x.header.as_ref().map(|h| h.file_type);
     let ext = match file_type {
-        Some(FileType::Basic) if format != Some(Format::Binary) => "bas".to_string(),
-        Some(FileType::Basic) => "bin".to_string(),
-        _ if file_type.is_none() && x.content == crate::detect::Content::AsciiBasic => "bas".to_string(),
-        Some(FileType::Machine) if name.ext().is_empty() => "bin".to_string(),
+        Some(FileType::Basic) => x.ext.to_string(),
+        None if x.content == crate::detect::Content::AsciiBasic => x.ext.to_string(),
+        Some(FileType::Machine) if name.ext().is_empty() => crate::filename::MACHINE_EXT.to_string(),
         _ => name.ext(),
     };
     if ext.is_empty() {
@@ -248,38 +255,17 @@ pub fn run_put_disk(inputs: &[String], arg: &str, addr: &ImageAddr, o: &DiskPutO
             bail!("{arg}: wildcards are not allowed in a put target");
         }
     }
+    let hint = "name the file on the disk explicitly, e.g. <image>:A:NAME.EXT";
+    let puts = prepare_disk_puts(inputs, addr.name.as_deref(), hint, o)?;
     let mut img = load(&addr.image)?;
     let mut side_bytes = img.side(side).to_vec();
     let mut vol = Volume::open_floppy_side(&mut side_bytes[..])?;
     let ts = now_timestamp();
 
-    let mut seen: Vec<FileName> = Vec::new();
     let mut msgs = Vec::new();
-    for input in inputs {
-        let raw = std::fs::read(input).with_context(|| format!("cannot read {input}"))?;
-        let h = header::find(&raw);
-        let content = crate::detect::detect_from_header(h.as_ref(), &raw);
-        narrate(o.verbose, format!("{input}: detected {}", content.describe()));
-        let spec = PutSpec {
-            source_name: input,
-            device: Device::Pc1600,
-            format: o.format,
-            start_address: o.start_address,
-            run_address: o.run_address,
-            raw: o.raw,
-            endpoint: Endpoint::Disk,
-        };
-        let out = transfer::build_put(&raw, h.as_ref(), content, &spec).with_context(|| input.clone())?;
-        let name = match &addr.name {
-            Some(n) => FileName::parse(n)?,
-            None => default_disk_name(input, out.kind, &out.bytes)?,
-        };
-        if seen.contains(&name) {
-            bail!("{input}: {name} is the target of more than one input file");
-        }
-        seen.push(name);
-        vol.write(&name, &out.bytes, ts, o.force)?;
-        msgs.push(format!("{input} -> {name} ({}, {} bytes)", describe_put(out.kind), out.bytes.len()));
+    for p in &puts {
+        vol.write(&p.name, &p.out.bytes, ts, o.force)?;
+        msgs.push(p.report());
     }
     let free = vol.free_bytes();
 
@@ -290,6 +276,114 @@ pub fn run_put_disk(inputs: &[String], arg: &str, addr: &ImageAddr, o: &DiskPutO
     save(&addr.image, &img)?;
     msgs.push(format!("{} side {side}: {free} bytes free", addr.image.display()));
     Ok(msgs.join("\n"))
+}
+
+/// `sde put <file>... <dir>`: a host folder used as a PC-1600 disk, such as Calc-U-1600's
+/// host drive (`S3:`). Files are stored as on a floppy (8.3 names, BASIC tokenized as
+/// `NAME.BAS`); new names are created upper-case, an existing file keeps its host
+/// spelling.
+pub fn run_put_dir(inputs: &[String], dir: &Path, o: &DiskPutOptions) -> Result<String> {
+    let puts = prepare_disk_puts(inputs, None, "rename it to an 8.3 name (NAME.EXT) first", o)?;
+    let mut msgs = Vec::new();
+    for p in &puts {
+        let path = host_disk_path(dir, &p.name, o.force)?;
+        if !o.dry_run {
+            if path.exists() {
+                // --force replaces a write-protected file too, as on a floppy.
+                std::fs::remove_file(&path).with_context(|| format!("cannot replace {}", path.display()))?;
+            }
+            std::fs::write(&path, &p.out.bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        }
+        msgs.push(p.report());
+    }
+    if o.dry_run {
+        msgs.push(format!("Dry run: {} not changed", dir.display()));
+    }
+    Ok(msgs.join("\n"))
+}
+
+/// Where `name` goes in `dir`: an existing file whose name matches it ignoring case (an
+/// error without `force`), else `dir/NAME.EXT`.
+fn host_disk_path(dir: &Path, name: &FileName, force: bool) -> Result<PathBuf> {
+    let wanted = name.to_string();
+    let mut existing: Option<PathBuf> = None;
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let Some(n) = file_name.to_str() else { continue };
+        if n.eq_ignore_ascii_case(&wanted) && entry.file_type()?.is_file() {
+            // The exact upper-case spelling wins, as on Calc-U-1600's host drive.
+            if existing.is_none() || n == wanted {
+                existing = Some(entry.path());
+            }
+        }
+    }
+    let Some(path) = existing else { return Ok(dir.join(wanted)) };
+    if !force {
+        let protected = std::fs::metadata(&path)?.permissions().readonly();
+        let e = if protected { DiskError::Protected(wanted) } else { DiskError::Exists(wanted) };
+        return Err(anyhow::Error::from(e).context(path.display().to_string()));
+    }
+    Ok(path)
+}
+
+/// One input file, converted for a PC-1600 disk.
+struct DiskPut {
+    input: String,
+    name: FileName,
+    out: transfer::PutBytes,
+}
+
+impl DiskPut {
+    fn report(&self) -> String {
+        format!("{} -> {} ({}, {} bytes)", self.input, self.name, describe_put(self.out.kind), self.out.bytes.len())
+    }
+}
+
+/// Convert every input for a PC-1600 disk (floppy side or host folder) and pick its name
+/// there: `name` if given (one input only), else the host name per
+/// [`transfer::disk_ext_for`]. `name_hint` says how to fix a host name that isn't 8.3.
+fn prepare_disk_puts(
+    inputs: &[String],
+    name: Option<&str>,
+    name_hint: &str,
+    o: &DiskPutOptions,
+) -> Result<Vec<DiskPut>> {
+    let mut puts: Vec<DiskPut> = Vec::new();
+    for input in inputs {
+        let (raw, tape_name) = crate::wav_cmd::read_put_input(input, o.verbose)?;
+        let input = tape_name.unwrap_or_else(|| input.clone());
+        let h = header::find(&raw);
+        let content = crate::detect::detect_from_header(h.as_ref(), &raw);
+        narrate(o.verbose, format!("{input}: detected {}", content.describe()));
+        let spec = PutSpec {
+            source_name: &input,
+            device: Device::Pc1600,
+            format: o.format,
+            start_address: o.start_address,
+            run_address: o.run_address,
+            raw: o.raw,
+            endpoint: Endpoint::Disk,
+        };
+        let out = transfer::build_put(&raw, h.as_ref(), content, &spec).with_context(|| input.clone())?;
+        let name = match name {
+            Some(n) => FileName::parse(n)?,
+            None => default_disk_name(&input, out.kind, &out.bytes, name_hint)?,
+        };
+        if puts.iter().any(|p| p.name == name) {
+            bail!("{input}: {name} is the target of more than one input file");
+        }
+        let tokenized_basic = match out.kind {
+            PutKind::TokenizedBasic => true,
+            PutKind::AsIs => matches!(transfer::classify_disk_file(&out.bytes), DiskFileKind::Basic { .. }),
+            _ => false,
+        };
+        if tokenized_basic {
+            narrate(o.verbose, format!("{name} holds tokenized BASIC; the PC-1600 names BASIC .BAS in both forms"));
+        }
+        puts.push(DiskPut { input, name, out });
+    }
+    Ok(puts)
 }
 
 fn describe_put(kind: PutKind) -> &'static str {
@@ -305,15 +399,13 @@ fn describe_put(kind: PutKind) -> &'static str {
 }
 
 /// Host stem upper-cased, plus [`transfer::disk_ext_for`].
-fn default_disk_name(input: &str, kind: PutKind, bytes: &[u8]) -> Result<FileName> {
+fn default_disk_name(input: &str, kind: PutKind, bytes: &[u8], hint: &str) -> Result<FileName> {
     let p = Path::new(input);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let host_ext = p.extension().and_then(|s| s.to_str());
     let ext = transfer::disk_ext_for(kind, bytes, host_ext);
     let name = if ext.is_empty() { stem.to_string() } else { format!("{stem}.{ext}") };
-    FileName::parse(&name).map_err(|e| {
-        anyhow::anyhow!("{input}: {e}; name the file on the disk explicitly, e.g. <image>:A:NAME.EXT")
-    })
+    FileName::parse(&name).map_err(|e| anyhow::anyhow!("{input}: {e}; {hint}"))
 }
 
 fn now_timestamp() -> DosTimestamp {
@@ -342,15 +434,10 @@ pub fn run_del(targets: &[String], force: bool, dry_run: bool, verbose: bool) ->
         for (arg, side, name) in items {
             let mut bytes = img.side(side).to_vec();
             let mut vol = Volume::open_floppy_side(&mut bytes[..])?;
-            let entries = if Pattern::is_wildcard(&name) {
-                vol.glob(&Pattern::parse(&name)?)
-            } else {
-                let n = FileName::parse(&name)?;
-                vol.find(&n).into_iter().collect()
+            let entries = match vol.matching(&name) {
+                Err(e @ DiskError::NotFound(_)) => bail!("{arg}: {e}"),
+                r => r?,
             };
-            if entries.is_empty() {
-                bail!("{arg}: {}", DiskError::NotFound(name));
-            }
             for e in &entries {
                 vol.delete(e, force)?;
                 narrate(verbose, format!("{}: freed {} bytes", e.name, e.size));
@@ -401,13 +488,49 @@ mod tests {
         };
         let mut basic = header::build(Device::Pc1600, None, 4);
         basic.extend_from_slice(&[0x00, 0x0A, 0x01, 0x0D]);
-        assert_eq!(host_name_for(&n("GLOBUS.BAS"), &x(&basic, None), None), "GLOBUS.bas");
-        assert_eq!(
-            host_name_for(&n("GLOBUS.BAS"), &x(&basic, Some(Format::Binary)), Some(Format::Binary)),
-            "GLOBUS.bin"
-        );
-        assert_eq!(host_name_for(&n("SYS.CFG"), &x(b"A=1\r\n\x1A", None), None), "SYS.CFG");
-        assert_eq!(host_name_for(&n("README"), &x(b"hello\r\n\x1A", None), None), "README");
-        assert_eq!(host_name_for(&n("OLD"), &x(b"10 PRINT\r\n\x1A", None), None), "OLD.bas");
+        assert_eq!(host_name_for(&n("GLOBUS.BAS"), &x(&basic, None)), "GLOBUS.bas");
+        assert_eq!(host_name_for(&n("GLOBUS.BAS"), &x(&basic, Some(Format::Binary))), "GLOBUS.bbas");
+        assert_eq!(host_name_for(&n("SYS.CFG"), &x(b"A=1\r\n\x1A", None)), "SYS.CFG");
+        assert_eq!(host_name_for(&n("README"), &x(b"hello\r\n\x1A", None)), "README");
+        assert_eq!(host_name_for(&n("OLD"), &x(b"10 PRINT\r\n\x1A", None)), "OLD.bas");
+        assert_eq!(host_name_for(&n("OLD"), &x(b"10 PRINT\r\n\x1A", Some(Format::Binary))), "OLD.bas");
+    }
+
+    #[test]
+    fn put_to_a_host_folder() {
+        let d = std::env::temp_dir().join(format!("sde-put-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let s3 = d.join("s3");
+        std::fs::create_dir_all(&s3).unwrap();
+        let src = d.join("prog.bas");
+        std::fs::write(&src, "10 PRINT \"HI\"\n").unwrap();
+        let inputs = [src.to_string_lossy().to_string()];
+        let o = |format, force, dry_run| DiskPutOptions {
+            format,
+            start_address: None,
+            run_address: None,
+            raw: false,
+            force,
+            dry_run,
+            verbose: false,
+        };
+
+        // Dry run writes nothing; then a new file is tokenized, upper-case.
+        run_put_dir(&inputs, &s3, &o(None, false, true)).unwrap();
+        assert_eq!(std::fs::read_dir(&s3).unwrap().count(), 0);
+        run_put_dir(&inputs, &s3, &o(None, false, false)).unwrap();
+        let stored = std::fs::read(s3.join("PROG.BAS")).unwrap();
+        assert!(matches!(transfer::classify_disk_file(&stored), DiskFileKind::Basic { .. }));
+
+        // An existing file (any case) needs --force and keeps its host spelling.
+        std::fs::rename(s3.join("PROG.BAS"), s3.join("prog.bas")).unwrap();
+        let e = run_put_dir(&inputs, &s3, &o(None, false, false)).unwrap_err();
+        assert!(matches!(e.downcast_ref::<DiskError>(), Some(DiskError::Exists(_))), "{e:#}");
+        run_put_dir(&inputs, &s3, &o(Some(Format::Ascii), true, false)).unwrap();
+        let names: Vec<_> = std::fs::read_dir(&s3).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["prog.bas"]);
+        // -f ascii stores the listing (CP437, CRLF, 1A).
+        assert_eq!(std::fs::read(s3.join("prog.bas")).unwrap(), b"10 PRINT \"HI\"\r\n\x1A");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

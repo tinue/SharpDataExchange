@@ -2,10 +2,10 @@
 //!
 //! [`Transport`] is implemented by [`RealSerial`] (backed by the `serialport` crate),
 //! [`PtySerial`] (a plain file descriptor, for `pc1600emul`'s pseudo-terminal — see its
-//! doc comment for why), and [`FakeSerial`] (an in-memory test double). `sleep` is part
+//! doc comment for why), and `FakeSerial` (an in-memory test double, test builds only). `sleep` is part
 //! of the trait specifically so the paced-send/watchdog-receive logic in
 //! [`crate::sender`] / [`crate::receiver`] can be unit-tested without a real,
-//! multi-second-long wait. [`RealTransport`] picks between [`RealSerial`] and
+//! multi-second-long wait. [`open_transport`] picks between [`RealSerial`] and
 //! [`PtySerial`] based on the target device and is what `get_cmd`/`put_cmd` actually use.
 
 use std::time::Duration;
@@ -29,7 +29,27 @@ pub trait Transport {
     fn drain(&mut self, timeout: Duration);
 
     /// Pause. Real transports actually sleep; test doubles just record the request.
-    fn sleep(&mut self, d: Duration);
+    fn sleep(&mut self, d: Duration) {
+        std::thread::sleep(d);
+    }
+}
+
+impl<T: Transport + ?Sized> Transport for Box<T> {
+    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
+        (**self).write_all(bytes)
+    }
+
+    fn read(&mut self, poll_timeout: Duration) -> Result<Vec<u8>> {
+        (**self).read(poll_timeout)
+    }
+
+    fn drain(&mut self, timeout: Duration) {
+        (**self).drain(timeout)
+    }
+
+    fn sleep(&mut self, d: Duration) {
+        (**self).sleep(d)
+    }
 }
 
 /// Real serial port, backed by the `serialport` crate.
@@ -38,8 +58,8 @@ pub struct RealSerial {
 }
 
 impl RealSerial {
-    /// Open `port_name` configured for `device` (baud rate + flow control per the
-    /// device table in requirements §2): 8 data bits, no parity, 1 stop bit, hardware
+    /// Open `port_name` configured for `device` (baud rate per [`PocketDevice::baud_rate`],
+    /// flow control as below): 8 data bits, no parity, 1 stop bit, hardware
     /// flow control iff `device.uses_hardware_flow_control(flow_control)`. On Unix, no exclusive
     /// lock (so a peer that already holds the port open doesn't make the open fail);
     /// Windows has no non-exclusive open mode for `serialport`, so this is skipped
@@ -70,8 +90,8 @@ impl RealSerial {
     }
 
     /// Enumerate candidate ports for auto-detection: `cu.usb*` on macOS, `ttyACM*` /
-    /// `ttyUSB*` on Linux. Succeeds only when exactly one candidate matches (per
-    /// requirements §2); `pc1600emul` never calls this (its pseudo-terminal is never
+    /// `ttyUSB*` on Linux. Succeeds only when exactly one candidate matches;
+    /// `pc1600emul` never calls this (its pseudo-terminal is never
     /// enumerated) and must be resolved via `--port` or the config-file default instead.
     ///
     /// Matches against the final path component (`serialport::available_ports()`
@@ -134,10 +154,6 @@ impl Transport for RealSerial {
                 Err(_) => return,
             }
         }
-    }
-
-    fn sleep(&mut self, d: Duration) {
-        std::thread::sleep(d);
     }
 }
 
@@ -239,68 +255,22 @@ impl Transport for PtySerial {
         // delivered to the line discipline essentially immediately.
         std::thread::sleep(Duration::from_millis(20));
     }
-
-    fn sleep(&mut self, d: Duration) {
-        std::thread::sleep(d);
-    }
 }
 
-/// Dispatches to [`PtySerial`] for `pc1600emul` (see its doc comment for why) and
-/// [`RealSerial`] for everything else. This is what `get_cmd`/`put_cmd` actually open.
-pub enum RealTransport {
-    Serial(RealSerial),
+/// Open the transport for `device`: [`PtySerial`] for `pc1600emul` (see its doc
+/// comment for why), [`RealSerial`] for everything else. This is what
+/// `get_cmd`/`put_cmd` actually open.
+pub fn open_transport(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<Box<dyn Transport>> {
     #[cfg(unix)]
-    Pty(PtySerial),
+    if device.is_emulator() {
+        return Ok(Box::new(PtySerial::open(port_name, flow_control)?));
+    }
+    Ok(Box::new(RealSerial::open(port_name, device, flow_control)?))
 }
 
-impl RealTransport {
-    pub fn open(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<RealTransport> {
-        #[cfg(unix)]
-        if device.is_emulator() {
-            return Ok(RealTransport::Pty(PtySerial::open(port_name, flow_control)?));
-        }
-        let _ = device.is_emulator(); // silence unused-on-non-unix warnings
-        Ok(RealTransport::Serial(RealSerial::open(port_name, device, flow_control)?))
-    }
-}
-
-impl Transport for RealTransport {
-    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
-        match self {
-            RealTransport::Serial(s) => s.write_all(bytes),
-            #[cfg(unix)]
-            RealTransport::Pty(p) => p.write_all(bytes),
-        }
-    }
-
-    fn read(&mut self, poll_timeout: Duration) -> Result<Vec<u8>> {
-        match self {
-            RealTransport::Serial(s) => s.read(poll_timeout),
-            #[cfg(unix)]
-            RealTransport::Pty(p) => p.read(poll_timeout),
-        }
-    }
-
-    fn drain(&mut self, timeout: Duration) {
-        match self {
-            RealTransport::Serial(s) => s.drain(timeout),
-            #[cfg(unix)]
-            RealTransport::Pty(p) => p.drain(timeout),
-        }
-    }
-
-    fn sleep(&mut self, d: Duration) {
-        match self {
-            RealTransport::Serial(s) => s.sleep(d),
-            #[cfg(unix)]
-            RealTransport::Pty(p) => p.sleep(d),
-        }
-    }
-}
-
-/// Resolve the port to use, per requirements §2/§6: explicit `--port` wins; for
-/// `pc1600emul`, the port is `<configured-or-default directory>/pc1600emul.port` (the
-/// socket filename is always fixed — the config key only sets which directory it lives
+/// Resolve the port to use: explicit `--port` wins; for `pc1600emul`, the port is
+/// `<configured-or-default directory>/calcu1600-rs232c.serial` (the socket filename is
+/// always fixed — the config key only sets which directory it lives
 /// in); otherwise auto-detect.
 pub fn resolve_port(
     device: PocketDevice,
@@ -326,6 +296,7 @@ pub fn resolve_port(
 
 /// In-memory test double. Records every write and every requested sleep (in order) so
 /// pacing logic can be asserted exactly, without actually waiting.
+#[cfg(test)]
 #[derive(Default)]
 pub struct FakeSerial {
     pub written: Vec<u8>,
@@ -337,6 +308,7 @@ pub struct FakeSerial {
     pub to_read: std::collections::VecDeque<Vec<u8>>,
 }
 
+#[cfg(test)]
 impl FakeSerial {
     pub fn new() -> Self {
         Self::default()
@@ -348,6 +320,7 @@ impl FakeSerial {
     }
 }
 
+#[cfg(test)]
 impl Transport for FakeSerial {
     fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         self.written.extend_from_slice(bytes);

@@ -11,6 +11,56 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-04
+
+### Added
+
+- **Cassette WAV files** for the PC-1500 / PC-1500A with CE-150 and the PC-1600 with
+  CE-1600P (MODE 0): BASIC programs, machine code and the PC-1500 Reserve Area.
+  - Reading needs no option: a WAV is recognized by its content. `sde info tape.wav`
+    names the tape format and every file on it; `sde get tape.wav` and
+    `sde convert tape.wav` write the files as a received file would be (`tape.wav:NAME`
+    picks one); `sde put tape.wav` sends it over serial or onto a floppy image.
+  - Decoding is tolerant — 5 kHz to 192 kHz, 8 to 32 bit or float, mono or stereo,
+    quiet, noisy, inverted, ±25 % speed, wow and flutter — and safe: a file is only
+    accepted when all of its checksums match; damaged ones are reported with their
+    position on the tape.
+  - `-f wav` writes a WAV: `sde convert prog.bas -f wav`, `sde get -f wav` (serial or
+    floppy image), with `--name`, `--sample-rate` (16000 to 192000, default 48000; below
+    16 kHz the PC-1600's `CLOAD` fails) and `--leader` (default about 2 s on the PC-1500
+    and 3 s on the PC-1600 instead of the ROMs' 8 s / 3.3 s; `rom` for the original
+    length).
+  - `sde put <file> -f wav` plays the tape through the computer's default audio output,
+    to load programs into a pocket computer with a CE-150 / CE-1600P but no CE-158.
+  - C ABI: `sde_wav_count`, `sde_wav_decode`, `sde_wav_encode`; `sde_file_kind` reports
+    `wav-pc1500`, `wav-pc1600` and `wav`. See library.md.
+- `sde put <file>... <directory>` stores files in a folder as on a PC-1600 disk:
+  BASIC tokenized as `NAME.BAS`, 8.3 names, `-f ascii`, `--force`, `--dry-run`. It
+  prepares a folder for Calc-U-1600's host drive (**Mount Directory…**, `S3:`), whose
+  `LOAD` expects tokenized BASIC.
+
+### Changed
+
+- **One file-naming convention.** Files sde writes are named the same way whether they
+  come from serial, a disk image, a tape or `convert`: `.bas` / `.bbas` for a BASIC
+  listing / tokenized BASIC, `.sdar` / `.bsdar` and `.sdav` / `.bsdav` for Reserve Area
+  and Variables, `.bin` for machine code only. On a PC-1600 disk BASIC stays `NAME.BAS`
+  in both forms, as the PC-1600 saves it.
+  - **Breaking:** `convert` writes tokenized BASIC as `.bbas` (was `.bbin`). Old
+    `.bbin` files still load.
+  - `get -f binary` of BASIC writes `.bbas`; it was `.bas` over serial and `.bin` from a
+    disk image or tape. Binary Reserve Area / Variables files are `.bsdar` / `.bsdav`
+    (were `.sdar` / `.sdav` over serial and `.bin` from tape).
+  - Input extensions are no longer checked: `convert` of a `.bas` file holding tokenized
+    BASIC (or a `.bbas` holding a listing) goes by its content instead of failing; `-v`
+    mentions the mismatch. When the listing of a tokenized `PROG.bas` would overwrite
+    it, the input is renamed to `PROG.bbas` first.
+
+- On Linux, `sde` now uses ALSA for the audio output: building it needs the
+  development package (`libasound2-dev`), running it the ALSA library (`libasound2`,
+  present on desktop systems). The library build (`--no-default-features`) is
+  unchanged.
+
 ## [0.3.2] - 2026-09-30
 
 ### Changed
@@ -317,7 +367,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tinue/SharpDataExchange/compare/v0.2.3...v0.3.0

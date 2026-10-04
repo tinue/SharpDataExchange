@@ -35,6 +35,11 @@ pub enum Endpoint {
 /// Calc-U-1600 writes exactly this header (`… C5 C0 00 FF FF 00 …`).
 pub const PC1600_NO_AUTORUN: u32 = 0xFFFF;
 
+/// Whether a header run address auto-starts (low 16 bits aren't [`PC1600_NO_AUTORUN`]).
+pub fn is_autorun(run_addr: u32) -> bool {
+    run_addr & 0xFFFF != PC1600_NO_AUTORUN
+}
+
 /// What a `put` source is turned into before it reaches the target.
 pub struct PutSpec<'a> {
     /// Host path (or name) of the source; supplies the synthesized header's filename.
@@ -74,8 +79,10 @@ pub struct PutBytes {
     pub kind: PutKind,
 }
 
-/// Build the exact bytes for a `put`, per requirements §5 step 5 / §3's header-auto-add
-/// rules. For [`Endpoint::Disk`] see [`build_disk_put`].
+/// Build the exact bytes for a serial `put`: a file with a header as-is, a listing,
+/// Reserve Area or Variables tokenized behind a new header, text in the device's form,
+/// headerless machine code wrapped (`--start-address`) or raw. For [`Endpoint::Disk`]
+/// see [`build_disk_put`].
 pub fn build_put(
     raw: &[u8],
     header: Option<&ParsedHeader>,
@@ -90,9 +97,14 @@ pub fn build_put(
         return Ok(PutBytes { bytes: raw.to_vec(), header_len: h.offset + h.header_len, kind: PutKind::AsIs });
     }
 
-    let forced_machine = spec.start_address.is_some();
+    // `--start-address` makes any headerless input machine code.
+    if let Some(start) = spec.start_address {
+        let run = spec.run_address.unwrap_or(0xFFFF);
+        let name = filename::synth_basename(spec.source_name);
+        return Ok(wrap(spec.device, FileType::Machine, &name, raw, start, run, PutKind::MachineWrapped));
+    }
 
-    if !forced_machine && (content == Content::AsciiBasic || forced_basic(content, spec)) {
+    if content == Content::AsciiBasic || forced_basic(content, spec) {
         // ASCII BASIC input is always tokenized here (the caller handles an explicit
         // `--format ascii` line-by-line send); `--format binary` also forces text that
         // detection did not take for BASIC to be tokenized.
@@ -102,7 +114,7 @@ pub fn build_put(
         return Ok(PutBytes { bytes, header_len, kind: PutKind::TokenizedBasic });
     }
 
-    if !forced_machine && content == Content::Ce158Reserve {
+    if content == Content::Ce158Reserve {
         let text = String::from_utf8_lossy(raw);
         let layout = crate::reserve::from_ascii(&text)?;
         let reg = Registry::for_device(spec.device);
@@ -111,7 +123,7 @@ pub fn build_put(
         return Ok(wrap(spec.device, FileType::Reserve, &name, &payload, 0, 0, PutKind::Reserve));
     }
 
-    if !forced_machine && content == Content::Ce158Variables {
+    if content == Content::Ce158Variables {
         let text = String::from_utf8_lossy(raw);
         let file = crate::variables::from_ascii(&text)?;
         let payload = crate::variables::encode_payload(&file.values)?;
@@ -121,7 +133,7 @@ pub fn build_put(
         return Ok(wrap(spec.device, FileType::Variables, &name, &payload, 0, 0, PutKind::Variables));
     }
 
-    if !forced_machine && !spec.raw && content == Content::Text && spec.format != Some(Format::Binary) {
+    if !spec.raw && content == Content::Text && spec.format != Some(Format::Binary) {
         if spec.device != Device::Pc1600 {
             bail!(
                 "plain text transfer is only supported for the PC-1600 family \
@@ -132,13 +144,7 @@ pub fn build_put(
         return Ok(PutBytes { bytes: encode_text(&text)?, header_len: 0, kind: PutKind::Text });
     }
 
-    // No header, not ASCII BASIC/Reserve/Variables/text -- a machine-language candidate.
-    if let Some(start) = spec.start_address {
-        let run = spec.run_address.unwrap_or(0xFFFF);
-        let name = filename::synth_basename(spec.source_name);
-        return Ok(wrap(spec.device, FileType::Machine, &name, raw, start, run, PutKind::MachineWrapped));
-    }
-
+    // No header, not ASCII BASIC/Reserve/Variables/text -- machine code needs --start-address.
     if spec.raw {
         return Ok(PutBytes { bytes: raw.to_vec(), header_len: 0, kind: PutKind::Raw });
     }
@@ -336,7 +342,8 @@ pub struct Extracted {
     pub notes: Vec<String>,
 }
 
-/// Convert device bytes into host-file bytes per `spec` (requirements §4 steps 3-6).
+/// Convert device bytes into host-file bytes per `spec`, and pick the host extension
+/// ([`filename::ext_for`]).
 pub fn extract(raw: &[u8], spec: &GetSpec) -> Result<Extracted> {
     let header = header::find(raw);
     let mut content = crate::detect::detect_from_header(header.as_ref(), raw);
@@ -412,10 +419,11 @@ pub fn extract(raw: &[u8], spec: &GetSpec) -> Result<Extracted> {
     }
 
     let ext = match file_type {
-        Some(t) => filename::ext_for(t),
+        Some(t) => filename::ext_for(t, format),
         None if content == Content::Text => "txt",
-        None if content == Content::Unknown => "bin",
-        None => "bas",
+        None if content == Content::Unknown => filename::MACHINE_EXT,
+        // A headerless listing stays a listing, even saved as binary.
+        None => filename::BASIC_ASCII_EXT,
     };
     Ok(Extracted { bytes, content, ext, header, notes })
 }
@@ -470,7 +478,7 @@ pub fn encode_ascii_listing(raw: &[u8]) -> Result<Vec<u8>> {
 /// True if device bytes look like an ASCII (headerless) file: up to the first `1A`,
 /// non-empty and free of control bytes other than TAB/LF/CR. CP437 high bytes are fine.
 pub fn looks_like_device_text(bytes: &[u8]) -> bool {
-    let body = device_text_body(bytes);
+    let body = crate::text::before_eof(bytes);
     body.iter().any(|b| !b.is_ascii_whitespace())
         && body.first() != Some(&0xFF)
         && body.iter().all(|&b| b >= 0x20 || matches!(b, 0x09 | 0x0A | 0x0D))
@@ -479,19 +487,8 @@ pub fn looks_like_device_text(bytes: &[u8]) -> bool {
 /// Decode a device ASCII file to host text: CP437 → UTF-8, cut at the first `1A`, every
 /// CRLF / CR / LF becomes `eol`.
 pub fn decode_device_text(bytes: &[u8], eol: LineEnding) -> String {
-    let text = crate::cp437::decode(device_text_body(bytes));
-    apply_eol(&normalize_newlines(&text), eol)
-}
-
-fn device_text_body(bytes: &[u8]) -> &[u8] {
-    match bytes.iter().position(|&b| b == 0x1A) {
-        Some(i) => &bytes[..i],
-        None => bytes,
-    }
-}
-
-fn normalize_newlines(s: &str) -> String {
-    s.replace("\r\n", "\n").replace('\r', "\n")
+    let text = crate::cp437::decode(crate::text::before_eof(bytes));
+    apply_eol(&crate::text::normalize_newlines(&text), eol)
 }
 
 /// `s` has LF line endings; rewrite them to `eol`.
@@ -598,9 +595,9 @@ mod tests {
     fn disk_put_headers_and_binaries() {
         let mut p16 = header::build(Device::Pc1600, None, 4);
         p16.extend_from_slice(&[0x00, 0x0A, 0x01, 0x0D]);
-        assert_eq!(disk_put(&p16, &disk_spec("x.bbin")).unwrap().bytes, p16);
+        assert_eq!(disk_put(&p16, &disk_spec("x.bbas")).unwrap().bytes, p16);
 
-        let mut with_start = disk_spec("x.bbin");
+        let mut with_start = disk_spec("x.bbas");
         with_start.start_address = Some(0x1000);
         assert!(disk_put(&p16, &with_start).unwrap_err().to_string().contains("already has a PC-1600 header"));
 
@@ -652,6 +649,7 @@ mod tests {
         // BASIC, binary, header kept / skipped
         let bin = extract(&p16, &GetSpec { format: Some(Format::Binary), ..auto(LineEnding::Lf) }).unwrap();
         assert_eq!(bin.bytes, p16);
+        assert_eq!(bin.ext, "bbas");
         let bare = extract(&p16, &GetSpec { format: Some(Format::Binary), skip_header: true, eol: LineEnding::Lf })
             .unwrap();
         assert_eq!(bare.bytes, &p16[16..]);

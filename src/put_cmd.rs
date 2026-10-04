@@ -2,14 +2,14 @@
 //! byte sequence to transmit, and sends it — or, under `--dry-run`, reports what would
 //! have been sent without opening the port.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use crate::config::Config;
 use crate::detect::{self, Content};
 use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
 use crate::sender;
-use crate::serial::{self, RealTransport, Transport};
+use crate::serial;
 use crate::transfer::{self, PutBytes, PutKind, PutSpec};
 
 pub use crate::transfer::Format;
@@ -28,9 +28,8 @@ pub struct PutOptions {
     pub input_file: String,
 }
 
-/// Resolve the effective device (§3's header-vs-`--device` precedence):
-/// - No header: the explicit `--device`, defaulting to `pc1500` (matches `get`'s
-///   stated default; `put` doesn't restate one).
+/// Resolve the effective device (header vs. `--device`):
+/// - No header: the explicit `--device`, defaulting to `pc1500`.
 /// - Header present, PC-1500 family: an explicit PC-1600-family `--device` is a
 ///   mismatch error; otherwise the explicit device (if PC-1500-family) or `pc1500`.
 /// - Header present, PC-1600 family: the file can only be meant for a PC-1600, so the
@@ -59,6 +58,19 @@ pub fn resolve_effective_device(
     }
 }
 
+/// The serial [`PutSpec`] for `opts` on `device`.
+fn put_spec(opts: &PutOptions, device: PocketDevice) -> PutSpec<'_> {
+    PutSpec {
+        source_name: &opts.input_file,
+        device: device.to_registry_device(),
+        format: opts.format,
+        start_address: opts.start_address,
+        run_address: opts.run_address,
+        raw: opts.raw,
+        endpoint: transfer::Endpoint::Serial,
+    }
+}
+
 /// Build the exact byte sequence to transmit (see [`transfer::build_put`]). Returns
 /// `(bytes, header_len)`: `header_len` is the leading slice a paced send treats as "the
 /// header" (sent at full speed, then paused); `0` for a headerless send.
@@ -69,22 +81,13 @@ pub fn build_put_bytes(
     opts: &PutOptions,
     device: PocketDevice,
 ) -> Result<(Vec<u8>, usize)> {
-    let spec = PutSpec {
-        source_name: &opts.input_file,
-        device: device.to_registry_device(),
-        format: opts.format,
-        start_address: opts.start_address,
-        run_address: opts.run_address,
-        raw: opts.raw,
-        endpoint: transfer::Endpoint::Serial,
-    };
-    let out = transfer::build_put(raw, header, content, &spec)?;
+    let out = transfer::build_put(raw, header, content, &put_spec(opts, device))?;
     Ok((out.bytes, out.header_len))
 }
 
 pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
-    let raw = std::fs::read(&opts.input_file)
-        .with_context(|| format!("cannot read {}", opts.input_file))?;
+    // A cassette WAV becomes the serial image of the file on it.
+    let (raw, _) = crate::wav_cmd::read_put_input(&opts.input_file, opts.verbose)?;
     if raw.is_empty() {
         bail!("{} is empty", opts.input_file);
     }
@@ -105,7 +108,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     device.check_flow_control(opts.flow_control)?;
     crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
-    // §5's last bullet: an explicit `--format ascii` on headerless ASCII BASIC input
+    // An explicit `--format ascii` on headerless ASCII BASIC input
     // sends it line-by-line, untokenized, instead of the normal tokenized-binary path.
     // Reserve Area and Variables input has no equivalent "send as literal text" mode
     // (the device has no matching load command for either), so they always go through
@@ -114,16 +117,8 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
         return run_put_ascii_lines(&raw, opts, config, device);
     }
 
-    let spec = PutSpec {
-        source_name: &opts.input_file,
-        device: device.to_registry_device(),
-        format: opts.format,
-        start_address: opts.start_address,
-        run_address: opts.run_address,
-        raw: opts.raw,
-        endpoint: transfer::Endpoint::Serial,
-    };
-    let PutBytes { bytes, header_len, kind } = transfer::build_put(&raw, header.as_ref(), content, &spec)?;
+    let PutBytes { bytes, header_len, kind } =
+        transfer::build_put(&raw, header.as_ref(), content, &put_spec(opts, device))?;
 
     match kind {
         PutKind::AsIs => {}
@@ -153,24 +148,14 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
-    send(&mut transport, device, header_len, &bytes, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
+    sender::send_data(&mut transport, device, header_len, &bytes, opts.flow_control)?;
 
     Ok(format!("Sent {} bytes to {port_name} ({device})", bytes.len()))
 }
 
-fn send<T: Transport>(
-    transport: &mut T,
-    device: PocketDevice,
-    header_len: usize,
-    bytes: &[u8],
-    flow_control: bool,
-) -> Result<()> {
-    sender::send_data(transport, device, header_len, bytes, flow_control)
-}
-
 /// Line-by-line ASCII send for headerless ASCII BASIC input, when `--format ascii` is
-/// explicitly given (requirements §5's last bullet) — no tokenization, no header.
+/// explicitly given — no tokenization, no header.
 fn run_put_ascii_lines(
     raw: &[u8],
     opts: &PutOptions,
@@ -192,7 +177,7 @@ fn run_put_ascii_lines(
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
     sender::send_ascii_lines(&mut transport, device, &lines, opts.flow_control)?;
 
     Ok(format!("Sent {} ASCII lines to {port_name} ({device})", lines.len()))
@@ -290,7 +275,7 @@ mod tests {
         let raw = header::build(RegDevice::Pc1500, Some("x"), 4);
         let h = header::find(&raw).unwrap();
         let (bytes, header_len) =
-            build_put_bytes(&raw, Some(&h), Content::Ce158Basic, &opts("x.bbin"), PocketDevice::Pc1500)
+            build_put_bytes(&raw, Some(&h), Content::Ce158Basic, &opts("x.bbas"), PocketDevice::Pc1500)
                 .unwrap();
         assert_eq!(bytes, raw);
         assert_eq!(header_len, 27);
