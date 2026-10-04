@@ -26,9 +26,10 @@ GitHub release notes, so keep entries user-facing.
     accepted when all of its checksums match; damaged ones are reported with their
     position on the tape.
   - `-f wav` writes a WAV: `sde convert prog.bas -f wav`, `sde get -f wav` (serial or
-    floppy image), with `--name`, `--sample-rate` and `--leader` (default about 2 s on
-    the PC-1500 and 3 s on the PC-1600 instead of the ROMs' 8 s / 3.3 s; `rom` for the
-    original length).
+    floppy image), with `--name`, `--sample-rate` (16000 to 192000, default 48000; below
+    16 kHz the PC-1600's `CLOAD` fails) and `--leader` (default about 2 s on the PC-1500
+    and 3 s on the PC-1600 instead of the ROMs' 8 s / 3.3 s; `rom` for the original
+    length).
   - `sde put <file> -f wav` plays the tape through the computer's default audio output,
     to load programs into a pocket computer with a CE-150 / CE-1600P but no CE-158.
   - C ABI: `sde_wav_count`, `sde_wav_decode`, `sde_wav_encode`; `sde_file_kind` reports
@@ -36,8 +37,10 @@ GitHub release notes, so keep entries user-facing.
 
 ### Changed
 
-- Building `sde` on Linux now needs the ALSA development package (`libasound2-dev`)
-  for the audio output. The library build (`--no-default-features`) is unchanged.
+- On Linux, `sde` now uses ALSA for the audio output: building it needs the
+  development package (`libasound2-dev`), running it the ALSA library (`libasound2`,
+  present on desktop systems). The library build (`--no-default-features`) is
+  unchanged.
 
 ## [0.3.2] - 2026-09-30
 
