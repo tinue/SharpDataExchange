@@ -498,7 +498,7 @@ another WAV (re-encoded clean).
 |---|---|
 | `--name <NAME>` | File name on the tape (at most 16 characters). Default: the name in the header, else the input file's name, upper-cased. `CLOAD "NAME"` looks for it. |
 | `--leader <SECONDS\|rom>` | Lead-in tone before each file. Default about 2 s (PC-1500) / 3 s (PC-1600); `rom`: the ROMs' own length (about 8 s / 3.3 s). |
-| `--sample-rate <HZ>` | Sample rate of a written WAV file, 8000–192000 (default 48000). Playback (`put`) uses the audio device's rate. |
+| `--sample-rate <HZ>` | Sample rate of a written WAV file, 16000–192000 (default 48000; below 16 kHz the PC-1600's `CLOAD` fails). Playback (`put`) uses the audio device's rate. |
 | `--clean` | `put -f wav` of a WAV: decode it and play a freshly encoded tape instead of the recording. |
 | `-y`, `--yes` | `put -f wav`: start at once instead of waiting for Enter. |
 

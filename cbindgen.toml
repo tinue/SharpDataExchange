@@ -15,7 +15,7 @@ exclude = [
     "MIN_LEN", "WINDOW",
     "TRUNCATED", "TRAILING", "LEADING_NOISE", "HEADER_CUT", "BAD_PAYLOAD", "FATAL",
     # CLI-only (wav_cmd)
-    "DEFAULT_SAMPLE_RATE",
+    "DEFAULT_SAMPLE_RATE", "MIN_WRITE_RATE",
 ]
 
 [enum]

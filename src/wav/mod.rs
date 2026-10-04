@@ -245,8 +245,19 @@ impl Default for EncodeOptions {
     }
 }
 
+/// Lowest sample rate [`encode`] writes. Below it a PC-1600 "0" (3000 Hz) gets too few
+/// samples per cycle: the CE-1600P's `CLOAD` fails on 8 kHz files (Calc-U-1600, ROM
+/// `CLOAD`), while 16 kHz loads.
+pub const MIN_WRITE_RATE: u32 = 16_000;
+
 /// Encode files (all of one format) to a 16-bit mono WAV.
 pub fn encode(files: &[TapeFile], opts: &EncodeOptions) -> Result<Vec<u8>, TapeError> {
+    if opts.sample_rate < MIN_WRITE_RATE {
+        return Err(TapeError::Unsupported(format!(
+            "sample rate {} Hz (a tape needs at least {MIN_WRITE_RATE} Hz to load reliably)",
+            opts.sample_rate
+        )));
+    }
     let samples = encode_samples(files, opts)?;
     Ok(riff::write_pcm16(&samples, opts.sample_rate))
 }

@@ -569,6 +569,10 @@ fn wav_errors() {
     };
     assert_eq!(rc, SDE_ERR_WAV_UNSUPPORTED);
     assert!(last_error().contains("header"), "{}", last_error());
+    // Too low a sample rate for a tape to load.
+    let image = fixture("depreciation-tokenized-ce158header.bin");
+    let rc = unsafe { sde_wav_encode(image.as_ptr(), image.len(), 8000, 0, ptr::null(), &mut out, &mut out_len) };
+    assert_eq!(rc, SDE_ERR_WAV_UNSUPPORTED);
 }
 
 #[test]

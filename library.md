@@ -385,7 +385,7 @@ image.
   payload size, position on the tape and measured speed. A tape whose only file is
   damaged fails with `SDE_ERR_WAV_CORRUPT` and says where.
 * **`sde_wav_encode`** — a serial image (BASIC, machine code, or PC-1500 Reserve Area)
-  as a 16-bit mono WAV at `sample_rate`. The tape format follows the header (CE-158 →
+  as a 16-bit mono WAV at `sample_rate` (at least 16000). The tape format follows the header (CE-158 →
   CE-150, PC-1600 → CE-1600P); `name` (may be `NULL`) overrides the name on the tape.
   `leader_ms` is the lead-in tone: `SDE_WAV_LEADER_DEFAULT` (about 2 s / 3 s),
   `SDE_WAV_LEADER_ROM` (the ROMs' own, about 8 s / 3.3 s) or a length in milliseconds.

@@ -284,9 +284,9 @@ struct TapeArgs {
     /// file's name).
     #[arg(long, value_name = "NAME")]
     name: Option<String>,
-    /// `-f wav`: sample rate of a written WAV file (default 48000; playback uses the
-    /// output device's own rate).
-    #[arg(long, value_name = "HZ", value_parser = clap::value_parser!(u32).range(8000..=192000))]
+    /// `-f wav`: sample rate of a written WAV file, 16000 to 192000 (default 48000;
+    /// playback uses the output device's own rate).
+    #[arg(long, value_name = "HZ", value_parser = clap::value_parser!(u32).range(16000..=192000))]
     sample_rate: Option<u32>,
     /// `-f wav`: lead-in tone before each file, in seconds; `default` (about 2 s on the
     /// PC-1500, 3 s on the PC-1600) or `rom` (the original length, about 8 s / 3.3 s).
