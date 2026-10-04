@@ -42,7 +42,7 @@ pub fn append_ext_if_missing(name: &str, ext: &str) -> String {
 }
 
 /// Derive the filename for a synthesized header from a `put` input file path: base name
-/// (no extension), upper-cased, truncated to 16 characters — per requirements §3.
+/// (no extension), upper-cased, truncated to 16 characters (the CE-158 name field).
 pub fn synth_basename(input_path: &str) -> String {
     let stem = Path::new(input_path)
         .file_stem()

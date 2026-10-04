@@ -34,7 +34,7 @@ use sharpdx::wav_cmd::{self, TapeOptions, WavGetOptions};
 use sharpdx::LineEnding;
 
 #[derive(Parser)]
-#[command(name = "sde", version, about = "SharpDataExchange — PC-1500 / PC-1600 BASIC tokenizer / de-tokenizer")]
+#[command(name = "sde", version, about = "SharpDataExchange — move programs between a PC and a Sharp PC-1500 / PC-1600: serial, Calc-U-1600 disks, cassette WAVs, offline conversion")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -148,8 +148,8 @@ enum Command {
         /// Serial port name (auto-detected if omitted).
         #[arg(short, long)]
         port: Option<String>,
-        /// Override detected input format; `wav` plays the file as a cassette tape through
-        /// the default audio output instead of sending it over serial.
+        /// `binary` (default) tokenizes a BASIC listing, `ascii` sends or stores it as text;
+        /// `wav` plays the file as a cassette tape through the default audio output.
         #[arg(short = 'f', long, value_enum)]
         format: Option<FormatArg>,
         #[command(flatten)]
@@ -174,8 +174,8 @@ enum Command {
         /// write-protected).
         #[arg(long)]
         force: bool,
-        /// Report what would be sent, without opening the serial port or changing the
-        /// disk image.
+        /// Report what would be sent or stored, without opening the serial port or changing
+        /// the disk image or folder.
         #[arg(long)]
         dry_run: bool,
         /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on

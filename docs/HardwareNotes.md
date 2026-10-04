@@ -40,8 +40,10 @@ Note that I had to trim the edges of the board, because it would not have fit ot
 ## PC-1500/A: CE-158X
 
 The PC-1500 does not have a serial port built in. There was an add-on from Sharp
-called "CE-158" which provided a serial and a parallel port. `sde` is not currently
-compatible with the original device, but it would not be difficult to change this.
+called "CE-158" which provided a serial and a parallel port. Its serial port is
+RS-232 only, so connecting it needs a USB serial adapter with RS-232 levels. Even then
+the original CE-158 is not supported: it would most likely need a lower baud rate than
+the 19200 baud `sde` uses for the PC-1500, and `sde` has no option to set one.
 
 ![CE-158X](pictures/CE-158X.jpg)
 

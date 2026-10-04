@@ -241,7 +241,7 @@ pub unsafe extern "C" fn sde_detect(
 
 /// ASCII BASIC bytes -> tokenized payload. `with_header != 0` prepends the serial
 /// header. `segment_marker` selects how a `#SEGMENT` line renders -- see
-/// [`SdeSegmentMarker`]; pass `SDE_SEGMENT_MARKER_WIRE` for the previous behavior.
+/// [`SdeSegmentMarker`] (`SDE_SEGMENT_MARKER_WIRE` is what `SAVE "COM1:"` sends).
 ///
 /// # Safety
 /// Pointer/length pairs must describe readable buffers; `name` is NULL or a C string;

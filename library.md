@@ -137,12 +137,13 @@ int32_t sde_convert(SdeDevice device, const char *name,
 
 `SdeDevice` is `SDE_DEVICE_PC1500` (0) or `SDE_DEVICE_PC1600` (1). `SdeContent` is
 `UNKNOWN` / `ASCII_BASIC` / `CE158_BASIC` / `PC1600_BASIC` / `TEXT` (plain text that is
-not a BASIC listing; before 0.2.3 such input was reported as `UNKNOWN`).
+not a BASIC listing).
 
 ### File kind (program loaders)
 
 `sde_file_kind` writes a static, NUL-terminated one-word token to `*out_kind` (do
-not free it). The tokens are part of the stable API and are never renamed:
+not free it). The tokens are meant for program logic and are kept stable; new ones may
+be added:
 
 | token | the buffer holds |
 |---|---|
@@ -353,7 +354,7 @@ offset 65536 of the 128 KB image. The library never sees the `.floppy.yaml` file
   it for plain text (fails if it has no numbered lines). `flags` = `SDE_DISK_FORCE` replaces an existing file. `when` sets the
   directory time stamp (the PC-1600 clock has no year); `NULL` uses the current UTC time.
 * **`sde_disk_delete`** takes a name or a `*` / `?` pattern; `*out_deleted` is the
-  number of files removed.
+  number of files removed. Write-protected files need `SDE_DISK_FORCE`.
 
 These are exactly the rules the `sde` CLI applies (see the README's disk-image table).
 
@@ -375,6 +376,15 @@ already take. So a loader that handles `.bin` / `.bbas` files handles a WAV with
 extra call: `sde_file_kind` reports `wav-pc1500` / `wav-pc1600` (with `sde_file_info`
 describing the first file on the tape), and `sde_wav_decode` turns the file into an
 image.
+
+```mermaid
+flowchart LR
+    wav["WAV bytes"] -- "sde_wav_count /<br/>sde_wav_decode(i)" --> img["serial image<br/>(header + payload)"]
+    img -- "sde_wav_encode" --> wav
+    img -- "sde_file_info" --> load["load_addr, payload<br/>→ your loader"]
+    img -- "sde_detokenize" --> bas["BASIC listing"]
+    bas -- "sde_tokenize" --> img
+```
 
 * **`sde_wav_count`** — how many files on the tape decode safely; `*out_issues` (may be
   `NULL`) how many were found but are damaged or unsupported.

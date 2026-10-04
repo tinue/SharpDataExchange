@@ -79,8 +79,10 @@ pub struct PutBytes {
     pub kind: PutKind,
 }
 
-/// Build the exact bytes for a `put`, per requirements §5 step 5 / §3's header-auto-add
-/// rules. For [`Endpoint::Disk`] see [`build_disk_put`].
+/// Build the exact bytes for a serial `put`: a file with a header as-is, a listing,
+/// Reserve Area or Variables tokenized behind a new header, text in the device's form,
+/// headerless machine code wrapped (`--start-address`) or raw. For [`Endpoint::Disk`]
+/// see [`build_disk_put`].
 pub fn build_put(
     raw: &[u8],
     header: Option<&ParsedHeader>,
@@ -340,7 +342,8 @@ pub struct Extracted {
     pub notes: Vec<String>,
 }
 
-/// Convert device bytes into host-file bytes per `spec` (requirements §4 steps 3-6).
+/// Convert device bytes into host-file bytes per `spec`, and pick the host extension
+/// ([`filename::ext_for`]).
 pub fn extract(raw: &[u8], spec: &GetSpec) -> Result<Extracted> {
     let header = header::find(raw);
     let mut content = crate::detect::detect_from_header(header.as_ref(), raw);

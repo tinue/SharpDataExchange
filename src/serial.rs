@@ -58,8 +58,8 @@ pub struct RealSerial {
 }
 
 impl RealSerial {
-    /// Open `port_name` configured for `device` (baud rate + flow control per the
-    /// device table in requirements §2): 8 data bits, no parity, 1 stop bit, hardware
+    /// Open `port_name` configured for `device` (baud rate per [`PocketDevice::baud_rate`],
+    /// flow control as below): 8 data bits, no parity, 1 stop bit, hardware
     /// flow control iff `device.uses_hardware_flow_control(flow_control)`. On Unix, no exclusive
     /// lock (so a peer that already holds the port open doesn't make the open fail);
     /// Windows has no non-exclusive open mode for `serialport`, so this is skipped
@@ -90,8 +90,8 @@ impl RealSerial {
     }
 
     /// Enumerate candidate ports for auto-detection: `cu.usb*` on macOS, `ttyACM*` /
-    /// `ttyUSB*` on Linux. Succeeds only when exactly one candidate matches (per
-    /// requirements §2); `pc1600emul` never calls this (its pseudo-terminal is never
+    /// `ttyUSB*` on Linux. Succeeds only when exactly one candidate matches;
+    /// `pc1600emul` never calls this (its pseudo-terminal is never
     /// enumerated) and must be resolved via `--port` or the config-file default instead.
     ///
     /// Matches against the final path component (`serialport::available_ports()`
@@ -268,9 +268,9 @@ pub fn open_transport(port_name: &str, device: PocketDevice, flow_control: bool)
     Ok(Box::new(RealSerial::open(port_name, device, flow_control)?))
 }
 
-/// Resolve the port to use, per requirements §2/§6: explicit `--port` wins; for
-/// `pc1600emul`, the port is `<configured-or-default directory>/pc1600emul.port` (the
-/// socket filename is always fixed — the config key only sets which directory it lives
+/// Resolve the port to use: explicit `--port` wins; for `pc1600emul`, the port is
+/// `<configured-or-default directory>/calcu1600-rs232c.serial` (the socket filename is
+/// always fixed — the config key only sets which directory it lives
 /// in); otherwise auto-detect.
 pub fn resolve_port(
     device: PocketDevice,

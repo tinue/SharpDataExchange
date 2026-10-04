@@ -28,9 +28,8 @@ pub struct PutOptions {
     pub input_file: String,
 }
 
-/// Resolve the effective device (§3's header-vs-`--device` precedence):
-/// - No header: the explicit `--device`, defaulting to `pc1500` (matches `get`'s
-///   stated default; `put` doesn't restate one).
+/// Resolve the effective device (header vs. `--device`):
+/// - No header: the explicit `--device`, defaulting to `pc1500`.
 /// - Header present, PC-1500 family: an explicit PC-1600-family `--device` is a
 ///   mismatch error; otherwise the explicit device (if PC-1500-family) or `pc1500`.
 /// - Header present, PC-1600 family: the file can only be meant for a PC-1600, so the
@@ -109,7 +108,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     device.check_flow_control(opts.flow_control)?;
     crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
-    // §5's last bullet: an explicit `--format ascii` on headerless ASCII BASIC input
+    // An explicit `--format ascii` on headerless ASCII BASIC input
     // sends it line-by-line, untokenized, instead of the normal tokenized-binary path.
     // Reserve Area and Variables input has no equivalent "send as literal text" mode
     // (the device has no matching load command for either), so they always go through
@@ -156,7 +155,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 }
 
 /// Line-by-line ASCII send for headerless ASCII BASIC input, when `--format ascii` is
-/// explicitly given (requirements §5's last bullet) — no tokenization, no header.
+/// explicitly given — no tokenization, no header.
 fn run_put_ascii_lines(
     raw: &[u8],
     opts: &PutOptions,

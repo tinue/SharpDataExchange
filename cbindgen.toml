@@ -16,6 +16,9 @@ exclude = [
     "TRUNCATED", "TRAILING", "LEADING_NOISE", "HEADER_CUT", "BAD_PAYLOAD", "FATAL",
     # CLI-only (wav_cmd)
     "DEFAULT_SAMPLE_RATE", "MIN_WRITE_RATE",
+    # crate-internal (transfer, floppy_image, diskfs); the C ABI has SDE_* equivalents
+    "PC1600_NO_AUTORUN", "SIDE_SIZE", "FORMAT_VERSION", "NEW_FILE_ATTR", "NEW_FILE_YEAR_FIELD",
+    "ATTR_PROTECTED", "ATTR_UNKNOWN_I", "ATTR_HIDDEN", "Geometry",
 ]
 
 [enum]

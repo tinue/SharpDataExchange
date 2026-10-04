@@ -99,7 +99,7 @@ fn write_received_tape(
     )
 }
 
-/// `--raw` mode (§4): strip a same-family header if found, leave a wrong-family one in
+/// `--raw` mode: strip a same-family header if found, leave a wrong-family one in
 /// place, then report byte count + 16-bit checksum. Requires an explicit output file
 /// (checked by the caller before the port is even opened).
 fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
@@ -129,8 +129,7 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     Ok(Outcome { path, bytes, summary: format!("checksum 0x{checksum:04X}") })
 }
 
-/// Non-raw mode (§4 steps 3-6): detect content, branch on format, derive the output
-/// filename.
+/// Normal mode: detect content, convert per `--format`, derive the output filename.
 fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let header = header::find(raw);
 
@@ -157,7 +156,8 @@ fn process_normal(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     Ok(Outcome { path, bytes, summary: content.describe().to_string() })
 }
 
-/// Filename resolution per §4 step 5.
+/// The output file name: the given one, else the header's, else `unnamed`; `ext` is
+/// appended when the name has none.
 fn resolve_output_path(given: Option<&str>, header: Option<&ParsedHeader>, ext: &str) -> String {
     if let Some(name) = given {
         return filename::append_ext_if_missing(name, ext);

@@ -11,8 +11,9 @@ Rust reimplementation of the Java
 **byte-identical `convert` output** to the Java tool on the checked-in fixtures.
 
 Embedding this in your own application (C / C++ / Swift / Rust)? See
-[`library.md`](library.md) — that covers the offline tokenize/de-tokenize core and
-file access on a floppy side; serial `get`/`put` and `config` are CLI-only.
+[`library.md`](library.md): it covers tokenizing / de-tokenizing, file kinds, files on
+a floppy side and cassette WAVs. Serial `get`/`put`, audio playback and `config` are
+CLI-only.
 
 ## Table of Contents
 
@@ -83,8 +84,10 @@ Photos and build notes (adapter board, wiring, CE-158X) are in
 ### PC-1500 / PC-1500A: CE-158X
 
 The PC-1500 and PC-1500A do not have a built-in serial port. The original Sharp
-CE-158 add-on provided serial and parallel ports; the modern CE-158X by Jeff Birt
-(available at soigeneris.com) is the recommended replacement.
+CE-158 add-on provided serial and parallel ports, but it is not supported: its port
+is RS-232 only and would most likely need a lower baud rate than sde uses (see
+[`docs/HardwareNotes.md`](docs/HardwareNotes.md#pc-1500a-ce-158x)). Use the modern
+CE-158X by Jeff Birt (available at soigeneris.com).
 
 Connect the CE-158X to the PC via its USB port (labeled **U1**). No driver
 configuration is necessary on modern systems; the device appears as a standard
@@ -201,19 +204,35 @@ one-time-per-session serial setup commands.
 
 ## Concepts
 
-### Two transfer commands: `get` and `put`
+### Commands at a glance
 
-Both commands describe what the *PC* does:
+`get` and `put` describe what the *PC* does: **`get`** takes a file from somewhere and
+saves it on the PC, **`put`** takes a file on the PC and sends or stores it. On the
+Pocket Computer, `get` pairs with a **save** command (`CSAVE`, `SAVE`) and `put` with a
+**load** command (`CLOAD`, `LOAD`).
 
-- **`get`** — the PC receives data from the Pocket Computer and saves it to a file
-- **`put`** — the PC reads a file and sends it to the Pocket Computer
+```mermaid
+flowchart LR
+    host["Files on the PC<br/>.bas .bbas .bin …"]
+    pc["Pocket computer<br/>(serial)"]
+    floppy["Calc-U-1600 floppy image<br/>disk.floppy.yaml:A:"]
+    folder["Folder as PC-1600 disk<br/>(Calc-U-1600 S3:)"]
+    wav["Cassette WAV"]
+    audio["Audio output →<br/>CE-150 / CE-1600P"]
+    host -- put --> pc
+    pc -- get --> host
+    host -- put --> floppy
+    floppy -- get --> host
+    host -- put --> folder
+    wav -- "get, convert" --> host
+    host -- "convert -f wav" --> wav
+    host -- "put -f wav" --> audio
+```
 
-On the Pocket Computer side, `get` corresponds to a **save** command (e.g.
-`CSAVE`), and `put` corresponds to a **load** command (e.g. `CLOAD`).
-
-A third command, **`convert`**, needs no Pocket Computer: it tokenizes or
-de-tokenizes a BASIC file, or adds or strips a machine-code header, on the PC alone,
-and **`info`** describes what a file holds.
+- **`convert`** works on the PC alone: tokenizes or de-tokenizes BASIC, adds or strips
+  a machine-code header, unpacks or writes a cassette WAV.
+- **`info`** describes what a file holds.
+- **`dir`** and **`del`** list and delete files on a floppy image.
 
 ### Disk images (Calc-U-1600)
 
@@ -313,17 +332,17 @@ tape, `convert`):
 
 The exception is a PC-1600 disk (a floppy image or a [host folder](#calc-u-1600-host-drive-s3)):
 there BASIC is `NAME.BAS` in both forms, because that is how the PC-1600 itself saves
-it. sde versions before 0.3.3 wrote tokenized BASIC as `.bbin`; such files still load.
+it.
 
 ### Scope: BASIC, machine language, Reserve Area, and Variables
 
-`get`/`put` handle **BASIC programs, machine-language (assembly) programs, Reserve
-Area, and Variables**. Reserve Area and Variables are PC-1500/1500A-only and are not
-reachable through `convert` — see [Data Formats](#data-formats) for their layout.
+`get`/`put` handle **BASIC programs, machine-language (assembly) programs, text,
+Reserve Area, and Variables**. Reserve Area and Variables are PC-1500/1500A-only and
+are not handled by `convert` — see [Data Formats](#data-formats) for their layout.
 
 ### Verbosity: `-v` / `-q` / config default
 
-By default, `get`/`put` run quietly — only the essential result is printed
+By default, every command runs quietly — only the essential result is printed
 (the saved filename, a warning that matters regardless of verbosity, or an
 error). `-v`/`--verbose` narrates every non-obvious decision made along the way
 (which device was inferred and from where, whether a header was added/stripped,
@@ -334,12 +353,16 @@ one invocation when a config-file default has turned it on. Precedence:
 
 ### `--dry-run`
 
-`get --dry-run` still performs a **real serial receive** (it opens the port and
-waits for actual data, exactly like a normal `get`) and runs detection on what
-it received, but never writes the output file. `put --dry-run` never opens the
-serial port at all — it reports what would have been sent. Neither requires
-`-v` to print its report. (`convert` does not currently have a `--dry-run` flag; its `-v` is described
-[with the command](#convert--tokenize--de-tokenize-basic-add--strip-a-machine-code-header-offline).)
+`--dry-run` reports what would happen and writes nothing:
+
+- `get --dry-run` over serial still performs a **real receive** (it opens the port and
+  waits for data) and runs detection, but doesn't write the output file. From a disk
+  image or WAV it only reads.
+- `put --dry-run` never opens the serial port, the audio device, or changes a disk
+  image or folder.
+- `del --dry-run` lists what would be deleted.
+
+`convert` has no `--dry-run`.
 
 ### Config file
 
@@ -349,7 +372,7 @@ but simpler (no sections, no nesting). It's entirely optional; nothing breaks
 if it's absent. Manage it with `sde config get/set` rather than hand-editing,
 though the format is simple enough to edit directly if you prefer.
 
-Two keys are used today:
+Keys:
 
 | key | meaning |
 |---|---|
@@ -431,7 +454,7 @@ detected from the file's bytes, never its name.
 | `--start-address <hex>` | Load address for a **headerless** machine-language input (e.g. `38C5` or `0x38C5`). Required to send headerless machine code — see below. |
 | `--run-address <hex>` | Auto-run address for a headerless machine-language input; requires `--start-address`. Defaults to `0xFFFF` (no auto-run) if `--start-address` is given without it. |
 | `--raw` | Send a headerless machine-language file exactly as read, unmodified — even without `--start-address`. Overrides the error below. |
-| `--force` | Disk images only: replace an existing file of the same name. |
+| `--force` | Disk images and folders only: replace an existing file of the same name. |
 | `--dry-run` | Report what would be sent (header present/added/omitted, size, addresses), without opening the serial port. |
 | `-v`, `--verbose` / `-q`, `--quiet` | See [Verbosity](#verbosity--v---q--config-default). |
 | `-h`, `--help` | Print help. (`--version`/`-V` is top-level only: `sde --version`, not `sde put --version`.) |
@@ -796,8 +819,9 @@ SAVE "COM1:"
 
 ### ASCII BASIC
 
-Standard Sharp BASIC source code, one line per line number, full keyword names
-(not abbreviations):
+Standard Sharp BASIC source code, one line per line number. De-tokenized listings
+always spell keywords out in full; when tokenizing for the PC-1500, the dotted
+abbreviations the PC-1500 accepts (`P.` for `PRINT`, `GOS.` for `GOSUB`) are expanded:
 
 ```
 10 FOR I=1 TO 10
@@ -817,8 +841,9 @@ and — for machine language — load/run addresses.
 
 Use `--format binary` with `get` to save the file in binary form (header
 included by default, so the file can be sent straight back with `put`
-unmodified). Machine language is *always* saved as raw binary regardless of
-`--format`, since it can't be de-tokenized to a listing.
+unmodified). Machine language can only be saved in binary form: over serial,
+where `get` defaults to `--format ascii`, give `--format binary`; from a disk image
+or tape the format follows the content.
 
 ### Text
 
@@ -1052,20 +1077,9 @@ The input has no recognizable header and no `--start-address` was given. Either
 supply `--start-address` (and optionally `--run-address`), or pass `--raw` if
 the bytes are intentionally headerless and should be sent exactly as-is.
 
-**`get` refuses with "cannot produce an ASCII listing from this content"**
-The received/detected content is machine language, and `--format` was `ascii`
-(the default). Machine language can't be de-tokenized — pass `--format binary`.
-
-**`could not open serial port ...: Not a typewriter` for `--device pc1600emul`**
-This was a real bug (fixed): the `serialport` crate always applies the baud
-rate via a macOS ioctl (`IOSSIOSPEED`) that pseudo-terminals reject with
-`ENOTTY`, so opening any emulator pty through it failed unconditionally. `sde`
-now talks to `pc1600emul`'s pty as a plain file descriptor instead (no
-OS-level baud/parity/flow-control — meaningless for a local pty anyway, since
-the emulator paces bytes on its own side and `sde` already paces its
-`pc1600emul` sends itself). If you see this error, you're on a build predating
-that fix — update `sde`. Real hardware (`pc1500`/`pc1500a`/`pc1600`) is
-unaffected; that ioctl works fine against an actual UART driver.
+**`get` refuses with "machine language cannot be converted to ASCII"**
+The received content is machine language, and `--format` was `ascii` (the serial
+default). Machine language can't be de-tokenized — pass `--format binary`.
 
 **Data corruption or incomplete transfer (PC-1500)**
 The PC-1500 requires paced transmission; `sde` applies a 1 ms delay between
@@ -1096,7 +1110,8 @@ work.
 Implemented: `convert` (offline tokenize/de-tokenize), `get`/`put` (serial
 transfer) for **BASIC programs, machine-language programs, text, Reserve Area, and
 Variables** (the latter two PC-1500/1500A-only, `get`/`put`-only), `dir`/`get`/`put`/
-`del` on Calc-U-1600 floppy images, cassette WAV files (PC-1500 + CE-150, PC-1600 +
+`del` on Calc-U-1600 floppy images, `put` to a folder used as a PC-1600 disk,
+cassette WAV files (PC-1500 + CE-150, PC-1600 +
 CE-1600P in MODE 0: read, write, play), and `config` (per-user defaults).
 
 Won't implement (permanent decisions, not just currently-undone work):
@@ -1105,8 +1120,7 @@ Won't implement (permanent decisions, not just currently-undone work):
   full-duplex-capable (only input or output can be redirected at a time), so an
   interactive terminal has little value here.
 - **`--add-utils`** (serial utility BASIC sub-program injection on `put`).
-- Additional `--dry-run` support beyond what `get`/`put` already have (`convert
-  --dry-run` stays unimplemented).
+- `convert --dry-run`.
 - Windows serial-port auto-detection — Windows machines routinely enumerate many COM
   ports (Bluetooth, virtual devices, etc.), making auto-detection unreliable; always
   pass `--port` there.
@@ -1118,21 +1132,17 @@ Not implemented (may change):
   PC-1500 tapes, which sde writes with `-d pc1500`). Big-endian (RIFX), RF64 and
   compressed WAV files are not read. Other Sharp pocket computers' tapes (PC-1261,
   PC-1401, …) are not recognized.
-- Disk images: only CE-1600F floppies (`.floppy.yaml`). PC-1600 RAM-disk card images,
-  raw `.img` dumps, and formatting a side (`INIT`) are not supported; real 2.5″ disks
-  can't be read at all.
-
+- Disk images: only CE-1600F floppies (`.floppy.yaml`) and folders (`put` only).
+  PC-1600 RAM-disk card images, raw `.img` dumps, and formatting a side (`INIT`) are
+  not supported; real 2.5″ disks can't be read at all.
 - Whether the PC-1600 protocol has header types equivalent to Reserve Area/Variables
   at all is **unresearched** — `sde` does not recognize any PC-1600 header type byte
   beyond BASIC/machine language.
+- Dotted keyword abbreviations (`P.`) are expanded for the PC-1500 only; the PC-1600's
+  are not known yet.
 - PC-1600-only BASIC token values are limited to what the Java
   `Pc1600Keywords.java` lists (no PC-1600 ROM source exists); unknown `>= 0xE0`
   byte pairs pass through opaquely during `convert`.
-
-The one known `convert` fixture difference is the CE-158 header *filename* field
-casing — `sde` upper-cases it, while a historical fixture stored it lower-case; the
-byte-parity test compares those header bytes separately from the rest and treats them
-as "don't care". Payloads match exactly.
 
 ---
 
@@ -1140,9 +1150,15 @@ as "don't care". Payloads match exactly.
 
 ```
 cargo test          # byte-parity, round-trip, unit, and C-ABI tests
-cargo fmt
 cargo clippy --all-targets -- -D warnings
 ```
+
+The tree is not kept rustfmt-clean (CI's `cargo fmt --check` is advisory); format only
+the code you change, not the whole tree.
+
+The byte-parity test compares `convert` output with the Java tool's fixtures. The
+CE-158 header's filename field is the one difference (sde upper-cases it) and is
+compared as "don't care"; payloads match exactly.
 
 `src/keywords.rs` is generated from the Java `device/*Keywords.java` sources by
 `tools/extract_keywords.py`:
@@ -1155,7 +1171,7 @@ python3 tools/extract_keywords.py --check    # CI drift check (also a cargo test
 `get`/`put`'s serial transport, config file, and pacing/receive logic are unit
 tested against an in-memory transport double (no real hardware needed to run
 `cargo test`). Manually verified: real serial transfers against a real PC-1600 on
-macOS, and port auto-detection on macOS. Still untested: real PC-1500/CE-158
+macOS, and port auto-detection on macOS. Still untested: real PC-1500/CE-158X
 transfers, and port auto-detection on Windows and Linux.
 
 Releases are cut with [`bin/release`](bin/release); see the comment header in
