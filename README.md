@@ -154,7 +154,7 @@ best-effort attempt there and most likely has no effect.
 ### Tokenize a BASIC listing offline (no hardware needed)
 
 ```
-sde convert myprogram.bas       # -> myprogram.bbin (CE-158 header + tokens)
+sde convert myprogram.bas       # -> myprogram.bbas (CE-158 header + tokens)
 ```
 
 ### Load a program from a cassette WAV, or play one to the pocket computer
@@ -295,8 +295,25 @@ run `sde put`. The device does not buffer outgoing data, so the ordering matters
 ### Content detection, never file names
 
 `sde` identifies data type from its content, not the file name or extension —
-`.bas`, `.bin`, or any other extension can be used freely for `get`/`put`
-input/output files.
+`.bas`, `.bin`, or any other extension can be used freely for `get`/`put`/`convert`
+input files. A `.bas` file holding tokenized BASIC (as a PC-1600 disk stores it) is
+fine; `-v` mentions it.
+
+When sde names a file it writes, it uses one convention everywhere (serial, disk image,
+tape, `convert`):
+
+| Content | ASCII form | Binary form |
+|---|---|---|
+| BASIC | `.bas` | `.bbas` |
+| Reserve Area | `.sdar` | `.bsdar` |
+| Variables | `.sdav` | `.bsdav` |
+| Machine code | — | `.bin` |
+| Text | `.txt` | — |
+| Unrecognized data | — | `.bin` |
+
+The exception is a PC-1600 disk (a floppy image or a [host folder](#calc-u-1600-host-drive-s3)):
+there BASIC is `NAME.BAS` in both forms, because that is how the PC-1600 itself saves
+it. sde versions before 0.3.3 wrote tokenized BASIC as `.bbin`; such files still load.
 
 ### Scope: BASIC, machine language, Reserve Area, and Variables
 
@@ -364,8 +381,9 @@ Waits for the Pocket Computer to send data, then writes it to `<output-file>`.
 If `<output-file>` is omitted, the filename is derived from the serial header
 sent by the Pocket Computer; if the header also lacks a filename, `unnamed` is
 used (a warning is printed in both fallback cases). If a filename is given but
-lacks an extension, one is appended based on the detected data type (`.bas` for
-BASIC, `.bin` for machine language).
+lacks an extension, one is appended based on the data type and `--format`, per the
+[extension table](#content-detection-never-file-names) (`.bas` for a listing, `.bbas`
+for tokenized BASIC, `.bin` for machine language).
 
 | Option | Description |
 |---|---|
@@ -437,6 +455,7 @@ detected from the file's bytes, never its name.
 sde dir <image>.floppy.yaml[:<side>[:<pattern>]]
 sde get [options] <image>.floppy.yaml:<side>:<NAME.EXT|pattern> [<output-file-or-dir>]
 sde put [options] <file>... <image>.floppy.yaml:<side>:[<NAME.EXT>]
+sde put [options] <file>... <directory>
 sde del [--force] [--dry-run] <image>.floppy.yaml:<side>:<NAME.EXT|pattern>...
 ```
 
@@ -449,7 +468,7 @@ What `put` stores and `get` returns, by what the file contains:
 
 | Content | `put` stores (default) | `get` writes (default) | Options |
 |---|---|---|---|
-| BASIC listing | tokenized, 16-byte header, `NAME.BAS` | de-tokenized listing, `NAME.bas` | `put -f ascii`: store the listing as an ASCII program (what `SAVE "…",A` writes). `get -f binary`: keep it tokenized with its header (`NAME.bin`); add `--skip-header` to drop the header. |
+| BASIC listing | tokenized, 16-byte header, `NAME.BAS` | de-tokenized listing, `NAME.bas` | `put -f ascii`: store the listing as an ASCII program (what `SAVE "…",A` writes). `get -f binary`: keep it tokenized with its header (`NAME.bbas`); add `--skip-header` to drop the header. |
 | BASIC saved as ASCII | — | the listing, `NAME.bas` | `--raw` for the stored bytes |
 | Text (`.ASM`, `.CFG`, …) | Sharp character set, CRLF, trailing `1A` | UTF-8, `--eol` line ends, `1A` removed; name kept | `put -f binary`: tokenize it as BASIC after all (see below). `get -f binary` / `--raw`: the stored bytes |
 | File with a PC-1600 header | unchanged | machine code: unchanged (header kept, `.bin` if no extension); BASIC: see above | `get --skip-header`: without the header. `put --start-address` with a header is an error. |
@@ -472,6 +491,15 @@ otherwise the host extension). A name after the side renames it (one input file 
 `--force`. With a wildcard, `get` writes into a directory (default: the current one);
 `--raw` writes every file exactly as stored. `--dry-run` never changes the image.
 `--port`, `--flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
+
+**A folder as the disk.** With an existing directory as the last argument, `put`
+stores the files there exactly as on a floppy side: same conversions, 8.3 names, BASIC
+tokenized as `NAME.BAS`, `-f ascii` for an ASCII program, `--force` to replace,
+`--dry-run`. New files are created upper-case; an existing file is matched ignoring
+case and keeps its host spelling. A host file whose name isn't 8.3 is refused (rename
+it first). This prepares a folder for Calc-U-1600's host drive, see
+[below](#calc-u-1600-host-drive-s3). `get`, `dir` and `del` don't take a folder: the
+files are ordinary host files, so read one with `sde convert DIR/PROG.BAS`.
 
 ### Cassette WAV files: `get`, `put`, `convert`
 
@@ -537,13 +565,19 @@ content:
 
 Reserve Area and Variables are rejected.
 
-`.bas` is the extension for ASCII listings, `.bbin` for tokenized BASIC, `.bin` for
-machine code. The input extension must agree with its actual content. A machine-code
+`.bas` is the extension for ASCII listings, `.bbas` for tokenized BASIC, `.bin` for
+machine code (see the [extension table](#content-detection-never-file-names)). The
+input's content decides what happens, never its extension; with `-v`, an extension that
+disagrees with the content is mentioned. Tokenized BASIC named `PROG.bas` (as a PC-1600
+disk names it) whose listing would get its own name is renamed to `PROG.bbas` first,
+and the listing is written to `PROG.bas`; the summary line says so, `-v` says why. If
+`PROG.bbas` exists, that is an error — give an `<outfile>`. A machine-code
 output name drops a `.pure`/`.ce158`/`.pc1600` tag already in the input name
 (`prog.ce158.bin` → `prog.pure.bin`, not `prog.ce158.pure.bin`); the CE-158 header's
 filename field is that base name, upper-cased. An explicit `<outfile>` without an
 extension gets `.bin`. `convert` never overwrites its input file: if the output name
-would be the input, it stops with an error — give an `<outfile>`.
+would be the input (other than the rename above), it stops with an error — give an
+`<outfile>`.
 
 With no `<infile>` and data on stdin, `sde` reads stdin and writes the converted bytes
 to stdout (in that mode, direction is always ASCII→tokenized, and `--start-address` is
@@ -559,15 +593,18 @@ not accepted).
 
 ```
 sde convert myprogram.bas
-    → myprogram.bbin  (CE-158 header + tokens)
+    → myprogram.bbas  (CE-158 header + tokens)
 
-sde convert -d pc1600 myprogram.bas out.bbin
-    → out.bbin  (PC-1600 header + tokens)
+sde convert -d pc1600 myprogram.bas out.bbas
+    → out.bbas  (PC-1600 header + tokens)
 
-sde convert myprogram.bbin
+sde convert myprogram.bbas
     → myprogram.bas  (readable listing)
 
-cat myprogram.bas | sde convert > myprogram.bbin
+sde convert S3/GAME.BAS
+    → GAME.BAS renamed to GAME.bbas, listing in GAME.bas
+
+cat myprogram.bas | sde convert > myprogram.bbas
 
 sde convert prog.bin --start-address 38C5
     → prog.ce158.bin  (CE-158 MACHINE header, load 38C5, no auto-start)
@@ -825,7 +862,7 @@ key 6:
 All three `[layer N]` sections and all six `key N:` lines are always present (content
 may be empty). `put` accepts this text back and tokenizes it, erroring if the encoded
 pool would exceed the 110-byte hardware limit. `.sdar` is the extension for this ASCII
-form.
+form; `get -f binary` writes the tokenized form as `.bsdar`.
 
 ### Variables (SDAV)
 
@@ -857,7 +894,7 @@ recomputes it from the parsed text and errors on a mismatch. A numeric array is 
 `DIM (<dimMax>)` header followed by `dimMax + 1` decimal lines; a string array is a
 `DIM $(<dimMax>)*<maxLen>` header followed by `dimMax + 1` double-quoted lines
 (`\`, `"`, and non-printable bytes escaped as `\\`, `\"`, `\xHH`). `.sdav` is the
-extension for this ASCII form.
+extension for this ASCII form; `get -f binary` writes the binary form as `.bsdav`.
 
 Whether the PC-1600 protocol has equivalent header types for either format is
 unresearched — `sde` recognizes Reserve Area/Variables only behind a CE-158 (PC-1500)
@@ -922,6 +959,23 @@ sde del  Progs.floppy.yaml:A:OLD.BAS
 
 On the PC-1600: `LOAD "X:HELLO.BAS"`, `OPEN "X:NOTES.TXT" FOR INPUT AS #1`,
 `BLOAD "X:MON.BIN"`.
+
+### Calc-U-1600 host drive (S3:)
+
+Calc-U-1600's **File ▸ Mount Directory…** makes a folder the PC-1600 drive `S3:`, used
+byte for byte like a RAM disk: `LOAD` expects tokenized BASIC named `NAME.BAS`. An
+ASCII listing loads too, but only within the ROM's line-length limit, which many
+programs from the internet exceed. Fill the folder with tokenized copies:
+
+```
+sde put -v *.bas ~/pc1600/s3/
+```
+
+Each listing is tokenized for the PC-1600 and stored as `NAME.BAS`; `-v` notes that
+the file is binary despite the `.BAS`. To compare an ASCII load with a binary one,
+store the listing as well, under a second name:
+`cp game.bas gamea.bas && sde put -f ascii gamea.bas ~/pc1600/s3/`. Names must be 8.3.
+On the PC-1600: `LOAD "S3:GAME.BAS"`.
 
 ### Load a program without a CE-158 (through the audio output)
 

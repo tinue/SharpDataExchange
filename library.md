@@ -371,7 +371,7 @@ int32_t sde_wav_encode(const uint8_t *in, size_t in_len, uint32_t sample_rate,
 
 A tape file crosses the boundary as its **serial image** — CE-158 or PC-1600 header
 plus payload — the same bytes `sde_file_info`, `sde_detokenize` and a program loader
-already take. So a loader that handles `.bin` / `.bbin` files handles a WAV with one
+already take. So a loader that handles `.bin` / `.bbas` files handles a WAV with one
 extra call: `sde_file_kind` reports `wav-pc1500` / `wav-pc1600` (with `sde_file_info`
 describing the first file on the tape), and `sde_wav_decode` turns the file into an
 image.

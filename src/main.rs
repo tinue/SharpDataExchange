@@ -132,12 +132,14 @@ enum Command {
     },
 
     /// Read a file and send it to the Pocket Computer over serial, store files on a disk
-    /// image (`sde put <file>... <image>.floppy.yaml:<A|B>:[NAME.EXT]`), or play it as a
-    /// cassette tape through the audio output (`-f wav`). A cassette WAV input
-    /// (`<tape.wav>[:NAME]`) is decoded first.
+    /// image (`sde put <file>... <image>.floppy.yaml:<A|B>:[NAME.EXT]`) or in a folder
+    /// used as a PC-1600 disk, such as Calc-U-1600's host drive (`sde put <file>... <dir>`),
+    /// or play it as a cassette tape through the audio output (`-f wav`). A cassette WAV
+    /// input (`<tape.wav>[:NAME]`) is decoded first.
     Put {
         /// Serial: the input file. Disk image: input file(s), then the target
-        /// `<image>:<side>:` (optionally with a file name for a single input).
+        /// `<image>:<side>:` (optionally with a file name for a single input). Folder:
+        /// input file(s), then an existing directory.
         #[arg(required = true)]
         inputs: Vec<String>,
         /// Target device. Optional if the file already carries a recognized header.
@@ -168,7 +170,8 @@ enum Command {
         /// Send (or store) the file exactly as read: no header, no conversion.
         #[arg(long)]
         raw: bool,
-        /// Disk image: replace an existing file of the same name (even write-protected).
+        /// Disk image or folder: replace an existing file of the same name (even
+        /// write-protected).
         #[arg(long)]
         force: bool,
         /// Report what would be sent, without opening the serial port or changing the
@@ -574,11 +577,29 @@ fn run() -> Result<()> {
                 println!("{}", disk_cmd::run_put_disk(files, last, &addr, &opts)?);
                 return Ok(());
             }
+            if inputs.len() > 1 && std::path::Path::new(last).is_dir() {
+                check_disk_options(device, port.as_deref(), flowcontrol)?;
+                let opts = DiskPutOptions {
+                    format: host_format(format),
+                    start_address,
+                    run_address,
+                    raw,
+                    force,
+                    dry_run,
+                    verbose: verbosity,
+                };
+                let files = &inputs[..inputs.len() - 1];
+                println!("{}", disk_cmd::run_put_dir(files, std::path::Path::new(last), &opts)?);
+                return Ok(());
+            }
             if inputs.len() > 1 {
-                bail!("serial put sends one file (to store several, end with a disk image target <image>.floppy.yaml:<side>:)");
+                bail!(
+                    "serial put sends one file (to store several, end with a disk image target \
+                     <image>.floppy.yaml:<side>: or a directory)"
+                );
             }
             if force {
-                bail!("--force only applies to disk images");
+                bail!("--force only applies to disk images and directories");
             }
             let opts = PutOptions {
                 device: device.map(Into::into),

@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 
 use crate::detokenize::LineEnding;
-use crate::header::{self, FileType};
+use crate::filename;
+use crate::header;
 use crate::registry::Device;
 use crate::transfer::{self, Endpoint, Format, GetSpec, PutKind, PutSpec};
 use crate::verbosity::narrate;
@@ -248,7 +249,7 @@ pub fn run_get_wav(src: &WavSource, output: Option<&str>, default_dir: &Path, o:
             eprintln!("WARNING: {}: {note}", describe(f));
         }
         let path = match &out_dir {
-            Some(dir) => dir.join(host_name(f, &x, o.format)),
+            Some(dir) => dir.join(host_name(f, &x)),
             None => PathBuf::from(crate::filename::append_ext_if_missing(output.expect("no dir => file"), x.ext)),
         };
         msgs.push(crate::paths::write_got_file(&describe(f), &path, &x.bytes, x.content.describe(), o.dry_run)?);
@@ -261,14 +262,10 @@ pub fn run_get_wav(src: &WavSource, output: Option<&str>, default_dir: &Path, o:
 
 /// Host file name for a tape file: its tape name (characters a file system can't take
 /// replaced by `_`), plus the extension of what is written, unless the name already
-/// ends in it (`SIMPLE.BAS`).
-fn host_name(f: &TapeFile, x: &transfer::Extracted, format: Option<Format>) -> String {
-    let binary = format == Some(Format::Binary);
-    let ext = match x.header.as_ref().map(|h| h.file_type) {
-        Some(FileType::Basic) if binary => "bin",
-        Some(FileType::Reserve) if binary => "bin",
-        _ => x.ext,
-    };
+/// ends in it (`SIMPLE.BAS`). Tokenized BASIC replaces a `.BAS` the name ends in
+/// (`SIMPLE.BAS` -> `SIMPLE.bbas`).
+fn host_name(f: &TapeFile, x: &transfer::Extracted) -> String {
+    let ext = x.ext;
     let mut stem: String =
         f.name.trim().chars().map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c }).collect();
     if stem.is_empty() || stem.chars().all(|c| c == '.') {
@@ -276,6 +273,9 @@ fn host_name(f: &TapeFile, x: &transfer::Extracted, format: Option<Format>) -> S
     }
     match Path::new(&stem).extension().and_then(|e| e.to_str()) {
         Some(e) if e.eq_ignore_ascii_case(ext) => stem,
+        Some(e) if e.eq_ignore_ascii_case(filename::BASIC_ASCII_EXT) && ext == filename::BASIC_BINARY_EXT => {
+            format!("{}.{ext}", &stem[..stem.len() - e.len() - 1])
+        }
         _ => format!("{stem}.{ext}"),
     }
 }
@@ -443,11 +443,12 @@ mod tests {
         let get = |f: &TapeFile, format| {
             let img = wav::to_image(f).unwrap();
             let x = transfer::extract(&img, &GetSpec { format, skip_header: false, eol: LineEnding::Lf }).unwrap();
-            host_name(f, &x, format)
+            host_name(f, &x)
         };
         assert_eq!(get(&tape("LANDER", TapeKind::Basic), None), "LANDER.bas");
         assert_eq!(get(&tape("SIMPLE.BAS", TapeKind::Basic), None), "SIMPLE.BAS");
-        assert_eq!(get(&tape("SIMPLE.BAS", TapeKind::Basic), Some(Format::Binary)), "SIMPLE.BAS.bin");
+        assert_eq!(get(&tape("SIMPLE.BAS", TapeKind::Basic), Some(Format::Binary)), "SIMPLE.bbas");
+        assert_eq!(get(&tape("LANDER", TapeKind::Basic), Some(Format::Binary)), "LANDER.bbas");
         assert_eq!(get(&tape("A/B:C", TapeKind::Machine), None), "A_B_C.bin");
         assert_eq!(get(&tape("", TapeKind::Machine), None), "unnamed.bin");
     }

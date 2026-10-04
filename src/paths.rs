@@ -14,9 +14,7 @@ use crate::registry::Device;
 use crate::scanner::SegmentMarker;
 use crate::verbosity::narrate;
 
-const ASCII_EXT: &str = "bas";
-const TOKENIZED_EXT: &str = "bbin";
-const MACHINE_EXT: &str = "bin";
+use crate::filename::{BASIC_ASCII_EXT as ASCII_EXT, BASIC_BINARY_EXT as TOKENIZED_EXT, MACHINE_EXT};
 /// Output tags for a machine-code convert: `NAME.pure.bin` (header stripped),
 /// `NAME.ce158.bin` / `NAME.pc1600.bin` (header added).
 const PURE_TAG: &str = "pure";
@@ -40,11 +38,14 @@ pub struct ConvertOptions {
 /// Run one `convert`: read `infile`, convert, write the derived (or given) output file.
 /// Returns a one-line human summary.
 ///
-/// * ASCII BASIC -> tokenized (`.bbin`); tokenized BASIC -> listing (`.bas`).
+/// * ASCII BASIC -> tokenized (`.bbas`); tokenized BASIC -> listing (`.bas`). Tokenized
+///   BASIC named `.bas` (as on a PC-1600 disk) whose listing would overwrite it is
+///   renamed to `.bbas` first.
 /// * Machine code with a header -> the bare payload (`NAME.pure.bin`).
 /// * Headerless input with `--start-address` -> machine code behind an added header
 ///   (`NAME.ce158.bin` / `NAME.pc1600.bin`).
 ///
+/// The input is recognized by content; its extension is only narrated when it disagrees.
 /// The output never overwrites the input file.
 pub fn run_convert(infile: &str, outfile: Option<&str>, opts: &ConvertOptions) -> Result<String> {
     let in_path = append_bas_if_missing(infile);
@@ -61,7 +62,7 @@ pub fn run_convert(infile: &str, outfile: Option<&str>, opts: &ConvertOptions) -
     if let Some(start) = opts.start_address {
         return add_header(&in_path, outfile, &raw, content, start, opts);
     }
-    check_extension_matches_content(&in_path, content)?;
+    note_extension_mismatch(&in_path, content, opts.verbose);
 
     let (target_ext, tokenizing) = match content {
         Content::AsciiBasic => (TOKENIZED_EXT, true),
@@ -97,7 +98,39 @@ pub fn run_convert(infile: &str, outfile: Option<&str>, opts: &ConvertOptions) -
     let outcome =
         crate::convert::convert_with(&raw, opts.device, name, true, opts.eol, SegmentMarker::Wire)?;
     let out_path = derive_convert_output(outfile, &in_path, target_ext)?;
-    write_output(&in_path, &out_path, &outcome.bytes, opts.verbose)?;
+    // Tokenized `PROG.BAS` (a PC-1600 disk's naming): its listing's default name is the
+    // input itself, so the input moves aside to `PROG.bbas`, sde's name for it.
+    let renamed = if !tokenizing && outfile.is_none() && same_file(&in_path, &out_path) {
+        let aside = in_path.with_extension(TOKENIZED_EXT);
+        if aside.exists() {
+            bail!(
+                "{} holds tokenized BASIC, and its listing would overwrite it; {} exists, so it \
+                 can't be renamed there. Give an output file",
+                in_path.display(),
+                aside.display()
+            );
+        }
+        narrate(
+            opts.verbose,
+            format!(
+                "{} holds tokenized BASIC under .{ASCII_EXT} (as a PC-1600 disk stores it); renaming it \
+                 to {} so the listing can take its name",
+                in_path.display(),
+                aside.display()
+            ),
+        );
+        std::fs::rename(&in_path, &aside)
+            .with_context(|| format!("cannot rename {} to {}", in_path.display(), aside.display()))?;
+        Some(aside)
+    } else {
+        None
+    };
+    if let Err(e) = write_output(renamed.as_deref().unwrap_or(&in_path), &out_path, &outcome.bytes, opts.verbose) {
+        if let Some(aside) = &renamed {
+            let _ = std::fs::rename(aside, &in_path);
+        }
+        return Err(e);
+    }
 
     Ok(if tokenizing {
         format!(
@@ -107,8 +140,9 @@ pub fn run_convert(infile: &str, outfile: Option<&str>, opts: &ConvertOptions) -
             opts.device
         )
     } else {
+        let note = renamed.map(|a| format!("; input renamed to {}", a.display())).unwrap_or_default();
         format!(
-            "Converted {} -> {} (ASCII, {:?})",
+            "Converted {} -> {} (ASCII, {:?}{note})",
             in_path.display(),
             out_path.display(),
             outcome.device
@@ -131,9 +165,6 @@ fn add_header(
             in_path.display(),
             h.device.header_name()
         );
-    }
-    if let Some(e @ (ASCII_EXT | TOKENIZED_EXT)) = ext_of(in_path).as_deref() {
-        bail!("--start-address is for machine code, but {} is named *.{e}", in_path.display());
     }
     if content == Content::AsciiBasic {
         narrate(opts.verbose, "Input looks like a BASIC listing; treating it as machine code anyway (--start-address)");
@@ -259,7 +290,7 @@ fn base_stem(p: &Path) -> &str {
 }
 
 /// Output for a machine-code add/strip: the given file (`.bin` appended if it has no
-/// extension; `.bas`/`.bbin` rejected), else `<dir>/<base>.<tag>.bin`.
+/// extension; `.bas`/`.bbas` rejected), else `<dir>/<base>.<tag>.bin`.
 fn derive_machine_output(outfile: Option<&str>, in_path: &Path, tag: &str) -> Result<PathBuf> {
     match outfile {
         Some(given) => {
@@ -282,26 +313,18 @@ fn ext_of(p: &Path) -> Option<String> {
     p.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase())
 }
 
-/// The input extension must agree with its actual content: `.bbin` requires tokenized
-/// BASIC, `.bas` requires an ASCII listing. Any other extension is unconstrained.
-fn check_extension_matches_content(in_path: &Path, content: Content) -> Result<()> {
-    match ext_of(in_path).as_deref() {
-        Some(TOKENIZED_EXT) if !matches!(content, Content::Ce158Basic | Content::Pc1600Basic) => {
-            bail!(
-                "{} is named *.{TOKENIZED_EXT} but its content is {}",
-                in_path.display(),
-                content.describe()
-            )
-        }
-        Some(ASCII_EXT) if content != Content::AsciiBasic => {
-            bail!(
-                "{} is named *.{ASCII_EXT} but its content is {}",
-                in_path.display(),
-                content.describe()
-            )
-        }
-        _ => Ok(()),
-    }
+/// The content decides, not the extension; say so when `.bas` / `.bbas` disagrees with it.
+fn note_extension_mismatch(in_path: &Path, content: Content, verbose: bool) {
+    let tokenized = matches!(content, Content::Ce158Basic | Content::Pc1600Basic);
+    let named = match ext_of(in_path).as_deref() {
+        Some(TOKENIZED_EXT) if !tokenized => TOKENIZED_EXT,
+        Some(ASCII_EXT) if content != Content::AsciiBasic => ASCII_EXT,
+        _ => return,
+    };
+    narrate(
+        verbose,
+        format!("{} is named *.{named} but holds {}; going by its content", in_path.display(), content.describe()),
+    );
 }
 
 fn derive_convert_output(outfile: Option<&str>, in_path: &Path, target_ext: &str) -> Result<PathBuf> {
@@ -330,23 +353,23 @@ mod tests {
     #[test]
     fn append_bas() {
         assert_eq!(append_bas_if_missing("prog"), Path::new("prog.bas"));
-        assert_eq!(append_bas_if_missing("prog.bbin"), Path::new("prog.bbin"));
+        assert_eq!(append_bas_if_missing("prog.bbas"), Path::new("prog.bbas"));
         assert_eq!(append_bas_if_missing("dir/prog"), Path::new("dir/prog.bas"));
     }
 
     #[test]
     fn derive_output() {
         let inp = Path::new("a/prog.bas");
-        assert_eq!(derive_convert_output(None, inp, "bbin").unwrap(), Path::new("a/prog.bbin"));
+        assert_eq!(derive_convert_output(None, inp, "bbas").unwrap(), Path::new("a/prog.bbas"));
         assert_eq!(
-            derive_convert_output(Some("out"), inp, "bbin").unwrap(),
-            Path::new("out.bbin")
+            derive_convert_output(Some("out"), inp, "bbas").unwrap(),
+            Path::new("out.bbas")
         );
         assert_eq!(
-            derive_convert_output(Some("out.x"), inp, "bbin").unwrap(),
+            derive_convert_output(Some("out.x"), inp, "bbas").unwrap(),
             Path::new("out.x")
         );
-        assert!(derive_convert_output(Some("out.bas"), inp, "bbin").is_err());
+        assert!(derive_convert_output(Some("out.bas"), inp, "bbas").is_err());
     }
 
     #[test]
@@ -362,7 +385,7 @@ mod tests {
         assert_eq!(given("out").unwrap(), Path::new("out.bin"));
         assert_eq!(given("out.x").unwrap(), Path::new("out.x"));
         assert!(given("out.bas").is_err());
-        assert!(given("out.bbin").is_err());
+        assert!(given("out.bbas").is_err());
     }
 
     fn opts(start_address: Option<u32>) -> ConvertOptions {
@@ -417,6 +440,30 @@ mod tests {
         run_convert(bin, None, &opts(Some(0x1000))).unwrap();
         let wrapped = d.join("prog.ce158.bin");
         assert!(run_convert(wrapped.to_str().unwrap(), None, &opts(Some(0x1000))).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn tokenized_bas_moves_aside_for_its_listing() {
+        let d = scratch_dir("aside");
+        let listing = d.join("prog.bas");
+        std::fs::write(&listing, "10 PRINT 1\n").unwrap();
+        run_convert(listing.to_str().unwrap(), None, &opts(None)).unwrap();
+        // Tokenized BASIC under .bas, as a PC-1600 disk names it (lower-case, so the
+        // listing's default name is this file on case-sensitive file systems too).
+        let tokenized = listing;
+        std::fs::rename(d.join("prog.bbas"), &tokenized).unwrap();
+        let tokens = std::fs::read(&tokenized).unwrap();
+
+        let msg = run_convert(tokenized.to_str().unwrap(), None, &opts(None)).unwrap();
+        assert!(msg.contains("input renamed to"), "{msg}");
+        assert_eq!(std::fs::read(d.join("prog.bbas")).unwrap(), tokens);
+        assert_eq!(std::fs::read_to_string(d.join("prog.bas")).unwrap(), "10 PRINT 1\n");
+
+        // With the .bbas name taken, it is an error and nothing changes.
+        std::fs::write(&tokenized, &tokens).unwrap();
+        assert!(run_convert(tokenized.to_str().unwrap(), None, &opts(None)).is_err());
+        assert_eq!(std::fs::read(&tokenized).unwrap(), tokens);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

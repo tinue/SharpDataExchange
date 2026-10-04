@@ -276,7 +276,7 @@ mod tests {
         let raw = header::build(RegDevice::Pc1500, Some("x"), 4);
         let h = header::find(&raw).unwrap();
         let (bytes, header_len) =
-            build_put_bytes(&raw, Some(&h), Content::Ce158Basic, &opts("x.bbin"), PocketDevice::Pc1500)
+            build_put_bytes(&raw, Some(&h), Content::Ce158Basic, &opts("x.bbas"), PocketDevice::Pc1500)
                 .unwrap();
         assert_eq!(bytes, raw);
         assert_eq!(header_len, 27);

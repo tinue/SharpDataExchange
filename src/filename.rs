@@ -3,16 +3,27 @@
 use std::path::Path;
 
 use crate::header::FileType;
+use crate::transfer::Format;
 
-/// Extension appended when an output filename (from the CLI or a header) has none:
-/// `.bas` for BASIC, `.bin` for machine language, `.sdar` for Reserve Area, `.sdav`
-/// for Variables.
-pub fn ext_for(file_type: FileType) -> &'static str {
-    match file_type {
-        FileType::Basic => "bas",
-        FileType::Machine => "bin",
-        FileType::Reserve => "sdar",
-        FileType::Variables => "sdav",
+/// BASIC listing.
+pub const BASIC_ASCII_EXT: &str = "bas";
+/// Tokenized BASIC (on a PC-1600 disk it is still `.BAS`, as the device stores it).
+pub const BASIC_BINARY_EXT: &str = "bbas";
+/// Machine code, and data that is not recognized.
+pub const MACHINE_EXT: &str = "bin";
+
+/// The host extension for a file of `file_type` written in `format`: `.bas` / `.bbas`
+/// for BASIC, `.sdar` / `.bsdar` for Reserve Area, `.sdav` / `.bsdav` for Variables,
+/// `.bin` for machine code. Input files are recognized by content, never by these.
+pub fn ext_for(file_type: FileType, format: Format) -> &'static str {
+    match (file_type, format) {
+        (FileType::Basic, Format::Ascii) => BASIC_ASCII_EXT,
+        (FileType::Basic, Format::Binary) => BASIC_BINARY_EXT,
+        (FileType::Machine, _) => MACHINE_EXT,
+        (FileType::Reserve, Format::Ascii) => "sdar",
+        (FileType::Reserve, Format::Binary) => "bsdar",
+        (FileType::Variables, Format::Ascii) => "sdav",
+        (FileType::Variables, Format::Binary) => "bsdav",
     }
 }
 
@@ -47,10 +58,11 @@ mod tests {
 
     #[test]
     fn ext_for_types() {
-        assert_eq!(ext_for(FileType::Basic), "bas");
-        assert_eq!(ext_for(FileType::Machine), "bin");
-        assert_eq!(ext_for(FileType::Reserve), "sdar");
-        assert_eq!(ext_for(FileType::Variables), "sdav");
+        let both = |t| (ext_for(t, Format::Ascii), ext_for(t, Format::Binary));
+        assert_eq!(both(FileType::Basic), ("bas", "bbas"));
+        assert_eq!(both(FileType::Machine), ("bin", "bin"));
+        assert_eq!(both(FileType::Reserve), ("sdar", "bsdar"));
+        assert_eq!(both(FileType::Variables), ("sdav", "bsdav"));
     }
 
     #[test]

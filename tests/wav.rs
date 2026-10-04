@@ -186,9 +186,9 @@ mod cli {
     #[test]
     fn defaults_are_unchanged() {
         let d = scratch("defaults");
-        // convert still tokenizes to .bbin, never writes a WAV unasked.
+        // convert still tokenizes to .bbas, never writes a WAV unasked.
         ok(&d, &["convert", "depreciation.bas"]);
-        assert!(d.join("depreciation.bbin").exists());
+        assert!(d.join("depreciation.bbas").exists());
         assert!(!d.join("depreciation.wav").exists());
         // The tape options need -f wav.
         assert!(fails(&d, &["convert", "depreciation.bas", "--leader", "3"]).contains("-f wav"));

@@ -97,14 +97,6 @@ would change behaviour or is too large for a cleanup pass. Grouped by why it was
       `no_autorun_run(start)`, `max_payload()`) and have both `transfer` paths call
       `add_machine_header`. Needs a decision on serial PC-1600's default (keep the bank or
       not) and on which error texts survive.
-- [ ] **`.bin` vs `.bas` naming for binary BASIC.** `transfer::extract` resolves the
-      effective `Format` but picks `Extracted.ext` from the file type alone, so tokenized
-      BASIC saved with `-f binary` gets `bas`. Disk `get` (`disk_cmd::host_name_for`) and
-      tape `get` (`wav_cmd::host_name`) each patch this to `bin`; serial `get` doesn't, so
-      the same file gets a different extension depending on the source.
-
-      Fix: compute `ext` from `(file_type, format)` inside `extract` and drop both patches.
-      This changes serial `get -f binary` output names from `.bas` to `.bin`.
 - [ ] **PC-1600 tape polarity.** `wav/pc1600.rs` decodes the whole signal in both
       polarities and keeps the better one. Choosing the polarity from the leader
       (`find_steady`) would halve the work, but could change which recordings decode;

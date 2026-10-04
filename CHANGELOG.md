@@ -34,8 +34,27 @@ GitHub release notes, so keep entries user-facing.
     to load programs into a pocket computer with a CE-150 / CE-1600P but no CE-158.
   - C ABI: `sde_wav_count`, `sde_wav_decode`, `sde_wav_encode`; `sde_file_kind` reports
     `wav-pc1500`, `wav-pc1600` and `wav`. See library.md.
+- `sde put <file>... <directory>` stores files in a folder as on a PC-1600 disk:
+  BASIC tokenized as `NAME.BAS`, 8.3 names, `-f ascii`, `--force`, `--dry-run`. It
+  prepares a folder for Calc-U-1600's host drive (**Mount Directory…**, `S3:`), whose
+  `LOAD` expects tokenized BASIC.
 
 ### Changed
+
+- **One file-naming convention.** Files sde writes are named the same way whether they
+  come from serial, a disk image, a tape or `convert`: `.bas` / `.bbas` for a BASIC
+  listing / tokenized BASIC, `.sdar` / `.bsdar` and `.sdav` / `.bsdav` for Reserve Area
+  and Variables, `.bin` for machine code only. On a PC-1600 disk BASIC stays `NAME.BAS`
+  in both forms, as the PC-1600 saves it.
+  - **Breaking:** `convert` writes tokenized BASIC as `.bbas` (was `.bbin`). Old
+    `.bbin` files still load.
+  - `get -f binary` of BASIC writes `.bbas`; it was `.bas` over serial and `.bin` from a
+    disk image or tape. Binary Reserve Area / Variables files are `.bsdar` / `.bsdav`
+    (were `.sdar` / `.sdav` over serial and `.bin` from tape).
+  - Input extensions are no longer checked: `convert` of a `.bas` file holding tokenized
+    BASIC (or a `.bbas` holding a listing) goes by its content instead of failing; `-v`
+    mentions the mismatch. When the listing of a tokenized `PROG.bas` would overwrite
+    it, the input is renamed to `PROG.bbas` first.
 
 - On Linux, `sde` now uses ALSA for the audio output: building it needs the
   development package (`libasound2-dev`), running it the ALSA library (`libasound2`,

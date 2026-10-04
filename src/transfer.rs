@@ -416,10 +416,11 @@ pub fn extract(raw: &[u8], spec: &GetSpec) -> Result<Extracted> {
     }
 
     let ext = match file_type {
-        Some(t) => filename::ext_for(t),
+        Some(t) => filename::ext_for(t, format),
         None if content == Content::Text => "txt",
-        None if content == Content::Unknown => "bin",
-        None => "bas",
+        None if content == Content::Unknown => filename::MACHINE_EXT,
+        // A headerless listing stays a listing, even saved as binary.
+        None => filename::BASIC_ASCII_EXT,
     };
     Ok(Extracted { bytes, content, ext, header, notes })
 }
@@ -591,9 +592,9 @@ mod tests {
     fn disk_put_headers_and_binaries() {
         let mut p16 = header::build(Device::Pc1600, None, 4);
         p16.extend_from_slice(&[0x00, 0x0A, 0x01, 0x0D]);
-        assert_eq!(disk_put(&p16, &disk_spec("x.bbin")).unwrap().bytes, p16);
+        assert_eq!(disk_put(&p16, &disk_spec("x.bbas")).unwrap().bytes, p16);
 
-        let mut with_start = disk_spec("x.bbin");
+        let mut with_start = disk_spec("x.bbas");
         with_start.start_address = Some(0x1000);
         assert!(disk_put(&p16, &with_start).unwrap_err().to_string().contains("already has a PC-1600 header"));
 
@@ -645,6 +646,7 @@ mod tests {
         // BASIC, binary, header kept / skipped
         let bin = extract(&p16, &GetSpec { format: Some(Format::Binary), ..auto(LineEnding::Lf) }).unwrap();
         assert_eq!(bin.bytes, p16);
+        assert_eq!(bin.ext, "bbas");
         let bare = extract(&p16, &GetSpec { format: Some(Format::Binary), skip_header: true, eol: LineEnding::Lf })
             .unwrap();
         assert_eq!(bare.bytes, &p16[16..]);
