@@ -3,14 +3,45 @@
 
 use super::TapeError;
 
-/// Decoded audio: one channel, normalised to `-1.0..=1.0`, plus the source facts.
-pub struct Pcm {
+/// A WAV's audio, read in place: the source facts plus the channel the decoder uses
+/// (the loudest one, for multi-channel files), decoded sample by sample on demand so a
+/// long recording is never copied whole.
+pub struct Pcm<'a> {
     pub sample_rate: u32,
     pub channels: u16,
     pub bits: u16,
     pub float: bool,
-    /// The channel the decoder uses (the loudest one, for multi-channel files).
-    pub samples: Vec<f32>,
+    data: &'a [u8],
+    /// Bytes per frame (all channels) and per sample.
+    frame: usize,
+    bytes: usize,
+    frames: usize,
+    channel: usize,
+}
+
+impl Pcm<'_> {
+    /// Samples per channel.
+    pub fn len(&self) -> usize {
+        self.frames
+    }
+
+    /// The decoder's channel, normalised to `-1.0..=1.0`.
+    pub fn samples(&self) -> impl ExactSizeIterator<Item = f32> + '_ {
+        (0..self.frames).map(|f| self.sample(f, self.channel))
+    }
+
+    fn sample(&self, f: usize, c: usize) -> f32 {
+        let o = f * self.frame + c * self.bytes;
+        let s = &self.data[o..o + self.bytes];
+        match (self.float, self.bytes) {
+            (false, 1) => (s[0] as f32 - 128.0) / 128.0,
+            (false, 2) => i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0,
+            (false, 3) => (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f32 / 8_388_608.0,
+            (false, _) => i32::from_le_bytes([s[0], s[1], s[2], s[3]]) as f32 / 2_147_483_648.0,
+            (true, 4) => f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+            (true, _) => f64::from_le_bytes(s[..8].try_into().unwrap()) as f32,
+        }
+    }
 }
 
 /// `true` when `buf` starts like a RIFF/WAVE file.
@@ -26,7 +57,7 @@ const FMT_EXTENSIBLE: u16 = 0xFFFE;
 /// cycle, so 5 kHz is the practical floor; 4 kHz leaves a little room for slow tapes.
 const MIN_RATE: u32 = 4000;
 
-pub fn read(buf: &[u8]) -> Result<Pcm, TapeError> {
+pub fn read(buf: &[u8]) -> Result<Pcm<'_>, TapeError> {
     if !is_wav(buf) {
         return Err(TapeError::NotWav("no RIFF/WAVE signature".into()));
     }
@@ -74,34 +105,21 @@ pub fn read(buf: &[u8]) -> Result<Pcm, TapeError> {
     let bytes = (bits / 8) as usize;
     let frame = (align as usize).max(bytes * channels as usize);
     let frames = data.len() / frame;
-    let sample = |f: usize, c: usize| -> f32 {
-        let o = f * frame + c * bytes;
-        let s = &data[o..o + bytes];
-        match (float, bytes) {
-            (false, 1) => (s[0] as f32 - 128.0) / 128.0,
-            (false, 2) => i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0,
-            (false, 3) => (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f32 / 8_388_608.0,
-            (false, _) => i32::from_le_bytes([s[0], s[1], s[2], s[3]]) as f32 / 2_147_483_648.0,
-            (true, 4) => f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
-            (true, _) => f64::from_le_bytes(s[..8].try_into().unwrap()) as f32,
-        }
-    };
+    let mut pcm = Pcm { sample_rate: rate, channels, bits, float, data, frame, bytes, frames, channel: 0 };
     // Pick the channel with the most AC energy: stereo rips often carry the tape on
     // one side only, and mixing would halve (or cancel) the signal.
-    let mut best = 0;
     if channels > 1 {
         let mut best_e = -1.0f64;
         for c in 0..channels as usize {
-            let mean = (0..frames).map(|f| sample(f, c) as f64).sum::<f64>() / frames.max(1) as f64;
-            let e: f64 = (0..frames).map(|f| (sample(f, c) as f64 - mean).powi(2)).sum();
+            let mean = (0..frames).map(|f| pcm.sample(f, c) as f64).sum::<f64>() / frames.max(1) as f64;
+            let e: f64 = (0..frames).map(|f| (pcm.sample(f, c) as f64 - mean).powi(2)).sum();
             if e > best_e {
                 best_e = e;
-                best = c;
+                pcm.channel = c;
             }
         }
     }
-    let samples = (0..frames).map(|f| sample(f, best)).collect();
-    Ok(Pcm { sample_rate: rate, channels, bits, float, samples })
+    Ok(pcm)
 }
 
 /// 16-bit mono PCM WAV from samples in `-1.0..=1.0`.
@@ -138,7 +156,7 @@ mod tests {
         assert!(is_wav(&wav));
         let pcm = read(&wav).unwrap();
         assert_eq!((pcm.sample_rate, pcm.channels, pcm.bits), (48000, 1, 16));
-        for (a, b) in s.iter().zip(&pcm.samples) {
+        for (a, b) in s.iter().zip(pcm.samples()) {
             assert!((a - b).abs() < 1e-4);
         }
     }
@@ -163,6 +181,7 @@ mod tests {
         }
         let pcm = read(&wav).unwrap();
         assert_eq!(pcm.channels, 2);
-        assert!(pcm.samples[0] > 0.5 && pcm.samples[1] < -0.5);
+        let s: Vec<f32> = pcm.samples().collect();
+        assert!(s[0] > 0.5 && s[1] < -0.5);
     }
 }

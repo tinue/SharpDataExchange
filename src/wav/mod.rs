@@ -184,7 +184,7 @@ impl std::error::Error for TapeError {}
 /// with no tape signal returns an empty report (see [`decode_files`] for the strict form).
 pub fn decode(wav: &[u8]) -> Result<DecodeReport, TapeError> {
     let pcm = riff::read(wav)?;
-    let e = demod::edges(&pcm.samples, pcm.sample_rate);
+    let e = demod::edges(|| pcm.samples(), pcm.sample_rate);
     let (mut files, mut issues) = pc1500::decode(&e.times);
     let (f16, i16) = pc1600::decode(&e.times);
     files.extend(f16);
@@ -196,7 +196,7 @@ pub fn decode(wav: &[u8]) -> Result<DecodeReport, TapeError> {
         channels: pcm.channels,
         bits: pcm.bits,
         float: pcm.float,
-        duration: pcm.samples.len() as f64 / pcm.sample_rate as f64,
+        duration: pcm.len() as f64 / pcm.sample_rate as f64,
         level_dbfs: e.level_dbfs,
         files,
         issues,
@@ -291,7 +291,7 @@ pub fn encode_samples(files: &[TapeFile], opts: &EncodeOptions) -> Result<Vec<f3
 /// channel of a multi-channel file), e.g. to play a recording unchanged.
 pub fn read_samples(wav: &[u8]) -> Result<(Vec<f32>, u32), TapeError> {
     let pcm = riff::read(wav)?;
-    Ok((pcm.samples, pcm.sample_rate))
+    Ok((pcm.samples().collect(), pcm.sample_rate))
 }
 
 /// Playing time of an encoded sample buffer, seconds.

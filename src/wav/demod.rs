@@ -13,21 +13,11 @@ pub struct Edges {
     pub level_dbfs: f64,
 }
 
-pub fn edges(samples: &[f32], rate: u32) -> Edges {
+/// Edges of the signal `samples` yields. `samples` is called twice (a level pass, then
+/// the edge pass), so the recording is streamed and never held as a whole here.
+pub fn edges<I: ExactSizeIterator<Item = f32>>(samples: impl Fn() -> I, rate: u32) -> Edges {
     let dt = 1.0 / rate as f64;
-    // One-pole high-pass at 40 Hz: removes DC offset and motor rumble, keeps 1.2 kHz+.
-    let rc = 1.0 / (2.0 * std::f64::consts::PI * 40.0);
-    let a = rc / (rc + dt);
-    let mut y = Vec::with_capacity(samples.len());
-    let (mut yp, mut xp) = (0.0f64, samples.first().copied().unwrap_or(0.0) as f64);
-    for &x in samples {
-        let x = x as f64;
-        yp = a * (yp + x - xp);
-        xp = x;
-        y.push(yp);
-    }
-
-    let reference = percentile_abs(&y, 0.99);
+    let reference = level(high_pass(samples(), dt));
     let level_dbfs = if reference > 0.0 { 20.0 * reference.log10() } else { f64::NEG_INFINITY };
     // Below 2 % of the file's own level counts as silence: no edges from hiss.
     let gate = reference * 0.02;
@@ -37,17 +27,17 @@ pub fn edges(samples: &[f32], rate: u32) -> Edges {
     let mut env = 0.0f64;
     let mut state = 0i8; // +1 high, -1 low, 0 unknown
     let (mut last_up, mut last_down) = (None::<f64>, None::<f64>);
-    for i in 0..y.len() {
-        let v = y[i];
+    let mut prev_v = None::<f64>;
+    for (i, v) in high_pass(samples(), dt).enumerate() {
         env = (env * decay).max(v.abs());
-        if i > 0 {
-            let p = y[i - 1];
+        if let Some(p) = prev_v {
             if p <= 0.0 && v > 0.0 {
                 last_up = Some(interp(i, p, v) * dt);
             } else if p >= 0.0 && v < 0.0 {
                 last_down = Some(interp(i, p, v) * dt);
             }
         }
+        prev_v = Some(v);
         let h = (env * 0.25).max(gate);
         let now = i as f64 * dt;
         let prev = times.last().copied().unwrap_or(f64::NEG_INFINITY);
@@ -66,6 +56,20 @@ pub fn edges(samples: &[f32], rate: u32) -> Edges {
     Edges { times, level_dbfs }
 }
 
+/// One-pole high-pass at 40 Hz: removes DC offset and motor rumble, keeps 1.2 kHz+.
+fn high_pass(samples: impl ExactSizeIterator<Item = f32>, dt: f64) -> impl ExactSizeIterator<Item = f64> {
+    let rc = 1.0 / (2.0 * std::f64::consts::PI * 40.0);
+    let a = rc / (rc + dt);
+    let mut samples = samples.peekable();
+    let (mut yp, mut xp) = (0.0f64, samples.peek().copied().unwrap_or(0.0) as f64);
+    samples.map(move |x| {
+        let x = x as f64;
+        yp = a * (yp + x - xp);
+        xp = x;
+        yp
+    })
+}
+
 /// Fractional sample index of the zero crossing between samples `i - 1` (value `p`)
 /// and `i` (value `v`).
 fn interp(i: usize, p: f64, v: f64) -> f64 {
@@ -74,14 +78,15 @@ fn interp(i: usize, p: f64, v: f64) -> f64 {
     (i - 1) as f64 + frac.clamp(0.0, 1.0)
 }
 
-fn percentile_abs(y: &[f64], q: f64) -> f64 {
-    if y.is_empty() {
+/// Peak level of the filtered signal `y`: its 99th percentile of `|y|`, not a lone spike.
+fn level<I: ExactSizeIterator<Item = f64>>(y: I) -> f64 {
+    if y.len() == 0 {
         return 0.0;
     }
     // A strided subsample is plenty for a level estimate and keeps this O(n).
     let step = (y.len() / 200_000).max(1);
-    let mut v: Vec<f64> = y.iter().step_by(step).map(|s| s.abs()).collect();
-    let k = ((v.len() - 1) as f64 * q) as usize;
+    let mut v: Vec<f64> = y.step_by(step).map(|s| s.abs()).collect();
+    let k = ((v.len() - 1) as f64 * 0.99) as usize;
     let (_, nth, _) = v.select_nth_unstable_by(k, |a, b| a.total_cmp(b));
     *nth
 }
@@ -94,7 +99,7 @@ mod tests {
     fn square_wave_at_two_samples_per_cycle() {
         // 2500 Hz at 5 kHz: +A, -A, +A, ... — every sample is an edge.
         let s: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.5 } else { -0.5 }).collect();
-        let e = edges(&s, 5000);
+        let e = edges(|| s.iter().copied(), 5000);
         let d: Vec<f64> = e.times.windows(2).map(|w| w[1] - w[0]).collect();
         let mid = &d[100..900];
         assert!(mid.iter().all(|x| (x - 0.0002).abs() < 1e-6), "{:?}", &mid[..8]);
@@ -107,7 +112,7 @@ mod tests {
         let s: Vec<f32> = (0..44100)
             .map(|i| (0.003 * (2.0 * std::f64::consts::PI * f * i as f64 / rate as f64).sin()) as f32)
             .collect();
-        let e = edges(&s, rate);
+        let e = edges(|| s.iter().copied(), rate);
         let d: Vec<f64> = e.times.windows(2).map(|w| w[1] - w[0]).collect();
         let half = 0.5 / f;
         assert!(d[200..2000].iter().all(|x| (x - half).abs() < half * 0.01));

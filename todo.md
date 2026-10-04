@@ -123,15 +123,11 @@ would change behaviour or is too large for a cleanup pass. Grouped by why it was
       N+2 full decodes, which takes seconds and hundreds of MB on a long recording. Fix:
       `sde_wav_open` → handle, `sde_wav_get(h, i)`, `sde_wav_free(h)` (or one call that
       returns every file). This is a C API addition, so Calc-U-1600 needs updating too.
-- [ ] **Decode memory.** `wav/demod.rs` copies all samples into a `Vec<f64>`, and
-      `wav::decode` keeps the original `pcm.samples` alive through both decoders only to
-      compute `duration` at the end. Peak memory is roughly file + f32 + f64. For a 10-min
-      48 kHz stereo WAV that's about 115 + 115 + 230 MB. Fix: compute `duration` first and
-      drop the samples, and filter in place as `f32` (or subsample for the level
-      percentile and stream the edge pass).
 - [ ] **Decoder passes.** `wav/pc1500.rs` and `wav/pc1600.rs` each build their own
       edge-difference vectors (pc1600 twice, once per polarity, plus strided copies), and
-      the two decoders run one after the other. Fix: compute `d` once (a PC-1600 cycle is
+      the two decoders run one after the other. Since samples stream (no copy of the
+      recording), these vectors are most of the remaining decode memory: a 24 KB
+      PC-1500 tape (30 min, 171 MB mono WAV) peaks at 466 MB, about 300 MB of it edges. Fix: compute `d` once (a PC-1600 cycle is
       `d[i] + d[i+1]`), and optionally run the sweeps under `std::thread::scope`.
 - [ ] **Channel selection.** `wav/riff.rs` picks the loudest channel with
       2·channels + 1 passes and re-matches the sample format per sample. Fix: one pass
