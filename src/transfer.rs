@@ -35,6 +35,11 @@ pub enum Endpoint {
 /// Calc-U-1600 writes exactly this header (`… C5 C0 00 FF FF 00 …`).
 pub const PC1600_NO_AUTORUN: u32 = 0xFFFF;
 
+/// Whether a header run address auto-starts (low 16 bits aren't [`PC1600_NO_AUTORUN`]).
+pub fn is_autorun(run_addr: u32) -> bool {
+    run_addr & 0xFFFF != PC1600_NO_AUTORUN
+}
+
 /// What a `put` source is turned into before it reaches the target.
 pub struct PutSpec<'a> {
     /// Host path (or name) of the source; supplies the synthesized header's filename.
@@ -90,9 +95,14 @@ pub fn build_put(
         return Ok(PutBytes { bytes: raw.to_vec(), header_len: h.offset + h.header_len, kind: PutKind::AsIs });
     }
 
-    let forced_machine = spec.start_address.is_some();
+    // `--start-address` makes any headerless input machine code.
+    if let Some(start) = spec.start_address {
+        let run = spec.run_address.unwrap_or(0xFFFF);
+        let name = filename::synth_basename(spec.source_name);
+        return Ok(wrap(spec.device, FileType::Machine, &name, raw, start, run, PutKind::MachineWrapped));
+    }
 
-    if !forced_machine && (content == Content::AsciiBasic || forced_basic(content, spec)) {
+    if content == Content::AsciiBasic || forced_basic(content, spec) {
         // ASCII BASIC input is always tokenized here (the caller handles an explicit
         // `--format ascii` line-by-line send); `--format binary` also forces text that
         // detection did not take for BASIC to be tokenized.
@@ -102,7 +112,7 @@ pub fn build_put(
         return Ok(PutBytes { bytes, header_len, kind: PutKind::TokenizedBasic });
     }
 
-    if !forced_machine && content == Content::Ce158Reserve {
+    if content == Content::Ce158Reserve {
         let text = String::from_utf8_lossy(raw);
         let layout = crate::reserve::from_ascii(&text)?;
         let reg = Registry::for_device(spec.device);
@@ -111,7 +121,7 @@ pub fn build_put(
         return Ok(wrap(spec.device, FileType::Reserve, &name, &payload, 0, 0, PutKind::Reserve));
     }
 
-    if !forced_machine && content == Content::Ce158Variables {
+    if content == Content::Ce158Variables {
         let text = String::from_utf8_lossy(raw);
         let file = crate::variables::from_ascii(&text)?;
         let payload = crate::variables::encode_payload(&file.values)?;
@@ -121,7 +131,7 @@ pub fn build_put(
         return Ok(wrap(spec.device, FileType::Variables, &name, &payload, 0, 0, PutKind::Variables));
     }
 
-    if !forced_machine && !spec.raw && content == Content::Text && spec.format != Some(Format::Binary) {
+    if !spec.raw && content == Content::Text && spec.format != Some(Format::Binary) {
         if spec.device != Device::Pc1600 {
             bail!(
                 "plain text transfer is only supported for the PC-1600 family \
@@ -132,13 +142,7 @@ pub fn build_put(
         return Ok(PutBytes { bytes: encode_text(&text)?, header_len: 0, kind: PutKind::Text });
     }
 
-    // No header, not ASCII BASIC/Reserve/Variables/text -- a machine-language candidate.
-    if let Some(start) = spec.start_address {
-        let run = spec.run_address.unwrap_or(0xFFFF);
-        let name = filename::synth_basename(spec.source_name);
-        return Ok(wrap(spec.device, FileType::Machine, &name, raw, start, run, PutKind::MachineWrapped));
-    }
-
+    // No header, not ASCII BASIC/Reserve/Variables/text -- machine code needs --start-address.
     if spec.raw {
         return Ok(PutBytes { bytes: raw.to_vec(), header_len: 0, kind: PutKind::Raw });
     }
@@ -470,7 +474,7 @@ pub fn encode_ascii_listing(raw: &[u8]) -> Result<Vec<u8>> {
 /// True if device bytes look like an ASCII (headerless) file: up to the first `1A`,
 /// non-empty and free of control bytes other than TAB/LF/CR. CP437 high bytes are fine.
 pub fn looks_like_device_text(bytes: &[u8]) -> bool {
-    let body = device_text_body(bytes);
+    let body = crate::text::before_eof(bytes);
     body.iter().any(|b| !b.is_ascii_whitespace())
         && body.first() != Some(&0xFF)
         && body.iter().all(|&b| b >= 0x20 || matches!(b, 0x09 | 0x0A | 0x0D))
@@ -479,19 +483,8 @@ pub fn looks_like_device_text(bytes: &[u8]) -> bool {
 /// Decode a device ASCII file to host text: CP437 → UTF-8, cut at the first `1A`, every
 /// CRLF / CR / LF becomes `eol`.
 pub fn decode_device_text(bytes: &[u8], eol: LineEnding) -> String {
-    let text = crate::cp437::decode(device_text_body(bytes));
-    apply_eol(&normalize_newlines(&text), eol)
-}
-
-fn device_text_body(bytes: &[u8]) -> &[u8] {
-    match bytes.iter().position(|&b| b == 0x1A) {
-        Some(i) => &bytes[..i],
-        None => bytes,
-    }
-}
-
-fn normalize_newlines(s: &str) -> String {
-    s.replace("\r\n", "\n").replace('\r', "\n")
+    let text = crate::cp437::decode(crate::text::before_eof(bytes));
+    apply_eol(&crate::text::normalize_newlines(&text), eol)
 }
 
 /// `s` has LF line endings; rewrite them to `eol`.

@@ -9,7 +9,7 @@ use crate::detect::{self, Content};
 use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
 use crate::sender;
-use crate::serial::{self, RealTransport, Transport};
+use crate::serial;
 use crate::transfer::{self, PutBytes, PutKind, PutSpec};
 
 pub use crate::transfer::Format;
@@ -59,6 +59,19 @@ pub fn resolve_effective_device(
     }
 }
 
+/// The serial [`PutSpec`] for `opts` on `device`.
+fn put_spec(opts: &PutOptions, device: PocketDevice) -> PutSpec<'_> {
+    PutSpec {
+        source_name: &opts.input_file,
+        device: device.to_registry_device(),
+        format: opts.format,
+        start_address: opts.start_address,
+        run_address: opts.run_address,
+        raw: opts.raw,
+        endpoint: transfer::Endpoint::Serial,
+    }
+}
+
 /// Build the exact byte sequence to transmit (see [`transfer::build_put`]). Returns
 /// `(bytes, header_len)`: `header_len` is the leading slice a paced send treats as "the
 /// header" (sent at full speed, then paused); `0` for a headerless send.
@@ -69,16 +82,7 @@ pub fn build_put_bytes(
     opts: &PutOptions,
     device: PocketDevice,
 ) -> Result<(Vec<u8>, usize)> {
-    let spec = PutSpec {
-        source_name: &opts.input_file,
-        device: device.to_registry_device(),
-        format: opts.format,
-        start_address: opts.start_address,
-        run_address: opts.run_address,
-        raw: opts.raw,
-        endpoint: transfer::Endpoint::Serial,
-    };
-    let out = transfer::build_put(raw, header, content, &spec)?;
+    let out = transfer::build_put(raw, header, content, &put_spec(opts, device))?;
     Ok((out.bytes, out.header_len))
 }
 
@@ -114,16 +118,8 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
         return run_put_ascii_lines(&raw, opts, config, device);
     }
 
-    let spec = PutSpec {
-        source_name: &opts.input_file,
-        device: device.to_registry_device(),
-        format: opts.format,
-        start_address: opts.start_address,
-        run_address: opts.run_address,
-        raw: opts.raw,
-        endpoint: transfer::Endpoint::Serial,
-    };
-    let PutBytes { bytes, header_len, kind } = transfer::build_put(&raw, header.as_ref(), content, &spec)?;
+    let PutBytes { bytes, header_len, kind } =
+        transfer::build_put(&raw, header.as_ref(), content, &put_spec(opts, device))?;
 
     match kind {
         PutKind::AsIs => {}
@@ -153,20 +149,10 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
-    send(&mut transport, device, header_len, &bytes, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
+    sender::send_data(&mut transport, device, header_len, &bytes, opts.flow_control)?;
 
     Ok(format!("Sent {} bytes to {port_name} ({device})", bytes.len()))
-}
-
-fn send<T: Transport>(
-    transport: &mut T,
-    device: PocketDevice,
-    header_len: usize,
-    bytes: &[u8],
-    flow_control: bool,
-) -> Result<()> {
-    sender::send_data(transport, device, header_len, bytes, flow_control)
 }
 
 /// Line-by-line ASCII send for headerless ASCII BASIC input, when `--format ascii` is
@@ -192,7 +178,7 @@ fn run_put_ascii_lines(
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, device, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
     sender::send_ascii_lines(&mut transport, device, &lines, opts.flow_control)?;
 
     Ok(format!("Sent {} ASCII lines to {port_name} ({device})", lines.len()))

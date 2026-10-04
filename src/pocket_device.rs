@@ -90,11 +90,7 @@ impl PocketDevice {
     /// Hex-digit width for verbose address reporting: 4 for PC-1500 family (16-bit
     /// addresses), 6 for PC-1600 (24-bit addresses).
     pub fn addr_hex_width(self) -> usize {
-        if self.is_pc1500_family() {
-            4
-        } else {
-            6
-        }
+        self.to_registry_device().addr_hex_width()
     }
 
     /// The CLI's spelling of this device, for narration/error messages.

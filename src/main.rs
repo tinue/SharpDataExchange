@@ -127,12 +127,8 @@ enum Command {
         /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
         #[arg(long)]
         flowcontrol: bool,
-        /// Narrate every non-obvious decision made along the way.
-        #[arg(short, long, conflicts_with = "quiet")]
-        verbose: bool,
-        /// Force narration off, overriding a default-verbose config setting.
-        #[arg(short, long, conflicts_with = "verbose")]
-        quiet: bool,
+        #[command(flatten)]
+        verbosity: VerbosityArgs,
     },
 
     /// Read a file and send it to the Pocket Computer over serial, store files on a disk
@@ -184,12 +180,8 @@ enum Command {
         /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
         #[arg(long)]
         flowcontrol: bool,
-        /// Narrate every non-obvious decision made along the way.
-        #[arg(short, long, conflicts_with = "quiet")]
-        verbose: bool,
-        /// Force narration off, overriding a default-verbose config setting.
-        #[arg(short, long, conflicts_with = "verbose")]
-        quiet: bool,
+        #[command(flatten)]
+        verbosity: VerbosityArgs,
     },
 
     /// List the files on a disk image: `sde dir <image>.floppy.yaml[:A|:B[:pattern]]`.
@@ -209,12 +201,8 @@ enum Command {
         /// Report what would be deleted without changing the image.
         #[arg(long)]
         dry_run: bool,
-        /// Narrate every non-obvious decision made along the way.
-        #[arg(short, long, conflicts_with = "quiet")]
-        verbose: bool,
-        /// Force narration off, overriding a default-verbose config setting.
-        #[arg(short, long, conflicts_with = "verbose")]
-        quiet: bool,
+        #[command(flatten)]
+        verbosity: VerbosityArgs,
     },
 
     /// Read or write a default in the per-user config file (`~/.sderc`).
@@ -242,10 +230,7 @@ enum DeviceArg {
 
 impl From<DeviceArg> for Device {
     fn from(d: DeviceArg) -> Self {
-        match d {
-            DeviceArg::Pc1500 | DeviceArg::Pc1500a => Device::Pc1500,
-            DeviceArg::Pc1600 | DeviceArg::Pc1600emul => Device::Pc1600,
-        }
+        PocketDevice::from(d).to_registry_device()
     }
 }
 
@@ -274,6 +259,30 @@ fn host_format(f: Option<FormatArg>) -> Option<Format> {
         FormatArg::Ascii => Some(Format::Ascii),
         FormatArg::Binary => Some(Format::Binary),
         FormatArg::Wav => None,
+    }
+}
+
+/// `-v`/`-q`, resolved against the config file's default.
+#[derive(Args, Clone, Copy)]
+struct VerbosityArgs {
+    /// Narrate every non-obvious decision made along the way.
+    #[arg(short, long, conflicts_with = "quiet")]
+    verbose: bool,
+    /// Force narration off, overriding a default-verbose config setting.
+    #[arg(short, long, conflicts_with = "verbose")]
+    quiet: bool,
+}
+
+impl VerbosityArgs {
+    fn resolve(self, config: &Config) -> bool {
+        let flag = if self.verbose {
+            VerbosityFlag::Verbose
+        } else if self.quiet {
+            VerbosityFlag::Quiet
+        } else {
+            VerbosityFlag::Unset
+        };
+        verbosity::resolve(flag, config)
     }
 }
 
@@ -360,9 +369,13 @@ fn run() -> Result<()> {
                 bail!("convert takes only -f wav (otherwise the direction is detected from file content)");
             }
             let tape = tape.for_format(format)?;
-            match infile {
-                Some(path) if tape.is_some() => {
-                    let t = tape.expect("checked");
+            // A whole cassette WAV (no `:NAME`) converts to the files on it.
+            let wav_src = match (&infile, &tape) {
+                (Some(path), None) => wav_cmd::wav_source(path).filter(|s| s.name.is_none()),
+                _ => None,
+            };
+            match (infile, tape, wav_src) {
+                (Some(path), Some(t), _) => {
                     let msg = wav_cmd::run_convert_to_wav(
                         &path,
                         outfile.as_deref(),
@@ -374,11 +387,10 @@ fn run() -> Result<()> {
                     )?;
                     println!("{msg}");
                 }
-                Some(path) if wav_cmd::wav_source(&path).is_some_and(|s| s.name.is_none()) => {
+                (Some(_), None, Some(src)) => {
                     if start_address.is_some() {
                         bail!("--start-address does not apply to a cassette WAV (its files carry their addresses)");
                     }
-                    let src = wav_cmd::wav_source(&path).expect("checked");
                     let dir = src
                         .path
                         .parent()
@@ -396,7 +408,7 @@ fn run() -> Result<()> {
                         wav_cmd::run_get_wav(&src, outfile.as_deref(), &dir, &o)?
                     );
                 }
-                Some(path) => {
+                (Some(path), None, None) => {
                     let opts = sharpdx::paths::ConvertOptions {
                         device: device.into(),
                         eol: eol.into(),
@@ -407,11 +419,11 @@ fn run() -> Result<()> {
                     let msg = sharpdx::paths::run_convert(&path, outfile.as_deref(), &opts)?;
                     println!("{msg}");
                 }
-                None if tape.is_some() => bail!("-f wav needs an input file"),
-                None if start_address.is_some() => {
+                (None, Some(_), _) => bail!("-f wav needs an input file"),
+                (None, None, _) if start_address.is_some() => {
                     bail!("--start-address needs an input file (stdin mode only tokenizes BASIC)")
                 }
-                None => run_stdio(device.into(), eol.into())?,
+                (None, None, _) => run_stdio(device.into(), eol.into())?,
             }
             Ok(())
         }
@@ -436,9 +448,9 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Get { args, device, port, format, tape, skip_header, eol, raw, dry_run, flowcontrol, verbose, quiet } => {
+        Command::Get { args, device, port, format, tape, skip_header, eol, raw, dry_run, flowcontrol, verbosity } => {
             let config = Config::load()?;
-            let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            let verbosity = verbosity.resolve(&config);
             let tape = tape.for_format(format)?;
             if tape.is_some() && (skip_header || raw) {
                 bail!("--skip-header and --raw do not apply with -f wav");
@@ -514,11 +526,10 @@ fn run() -> Result<()> {
             force,
             dry_run,
             flowcontrol,
-            verbose,
-            quiet,
+            verbosity,
         } => {
             let config = Config::load()?;
-            let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            let verbosity = verbosity.resolve(&config);
             let last = inputs.last().expect("clap requires at least one input");
             if let Some(t) = tape.for_format(format)? {
                 if inputs.len() > 1 || disk_cmd::parse_image_addr(last)?.is_some() {
@@ -591,9 +602,8 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Del { targets, force, dry_run, verbose, quiet } => {
-            let config = Config::load()?;
-            let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+        Command::Del { targets, force, dry_run, verbosity } => {
+            let verbosity = verbosity.resolve(&Config::load()?);
             println!("{}", disk_cmd::run_del(&targets, force, dry_run, verbosity)?);
             Ok(())
         }
@@ -628,15 +638,6 @@ fn check_disk_options(device: Option<DeviceArg>, port: Option<&str>, flowcontrol
     Ok(())
 }
 
-fn flag(verbose: bool, quiet: bool) -> VerbosityFlag {
-    if verbose {
-        VerbosityFlag::Verbose
-    } else if quiet {
-        VerbosityFlag::Quiet
-    } else {
-        VerbosityFlag::Unset
-    }
-}
 
 fn run_stdio(device: Device, eol: LineEnding) -> Result<()> {
     let mut input = Vec::new();

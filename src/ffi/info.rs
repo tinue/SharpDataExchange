@@ -3,7 +3,7 @@
 
 use std::ffi::c_char;
 
-use super::{clear_error, guard, slice, SDE_ERR_ARGS, SDE_OK};
+use super::{guard, slice, SDE_ERR_ARGS, SDE_OK};
 use crate::info::{self, problem};
 
 /// `SdeFileInfo::problems`: the payload is shorter than the header says.
@@ -72,7 +72,6 @@ pub unsafe extern "C" fn sde_file_kind(
     out_kind: *mut *const c_char,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         if out_kind.is_null() {
             return SDE_ERR_ARGS;
@@ -95,7 +94,6 @@ pub unsafe extern "C" fn sde_file_kind(
 #[no_mangle]
 pub unsafe extern "C" fn sde_file_info(input: *const u8, in_len: usize, out: *mut SdeFileInfo) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         if out.is_null() {
             return SDE_ERR_ARGS;
@@ -117,9 +115,9 @@ pub unsafe extern "C" fn sde_file_info(input: *const u8, in_len: usize, out: *mu
 }
 
 /// `n` as a NUL-terminated UTF-8 name field, truncated on a character boundary.
-pub(super) fn c_name(n: &str) -> [c_char; SDE_FILE_NAME_SIZE] {
-    let mut name = [0 as c_char; SDE_FILE_NAME_SIZE];
-    let mut end = n.len().min(SDE_FILE_NAME_SIZE - 1);
+pub(super) fn c_name<const N: usize>(n: &str) -> [c_char; N] {
+    let mut name = [0 as c_char; N];
+    let mut end = n.len().min(N - 1);
     while !n.is_char_boundary(end) {
         end -= 1;
     }

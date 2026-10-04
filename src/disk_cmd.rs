@@ -126,7 +126,7 @@ fn describe_kind(kind: DiskFileKind) -> String {
     match kind {
         DiskFileKind::Basic { .. } => "BASIC".into(),
         DiskFileKind::Machine { load, run, .. } => {
-            if run & 0xFFFF == transfer::PC1600_NO_AUTORUN {
+            if !transfer::is_autorun(run) {
                 format!("machine, load {load:06X}")
             } else {
                 format!("machine, load {load:06X}, run {run:06X}")
@@ -161,16 +161,7 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
     let vol = Volume::open_floppy_side(img.side(side))?;
 
     let wildcard = Pattern::is_wildcard(name);
-    let entries = if wildcard {
-        let found = vol.glob(&Pattern::parse(name)?);
-        if found.is_empty() {
-            return Err(DiskError::NotFound(name.to_string()).into());
-        }
-        found
-    } else {
-        let n = FileName::parse(name)?;
-        vec![vol.find(&n).ok_or_else(|| DiskError::NotFound(n.to_string()))?]
-    };
+    let entries = vol.matching(name)?;
 
     let out_dir = match output {
         Some(p) if Path::new(p).is_dir() => Some(PathBuf::from(p)),
@@ -217,12 +208,7 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
             None => PathBuf::from(output.expect("out_dir is None only with an output file")),
         };
         narrate(o.verbose, format!("{}: {} bytes on disk, {what}", e.name, e.size));
-        if o.dry_run {
-            msgs.push(format!("Dry run: would write {} bytes to {} ({what})", bytes.len(), path.display()));
-        } else {
-            std::fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
-            msgs.push(format!("{} -> {} ({what}, {} bytes)", e.name, path.display(), bytes.len()));
-        }
+        msgs.push(crate::paths::write_got_file(&e.name.to_string(), &path, &bytes, &what, o.dry_run)?);
     }
     Ok(msgs.join("\n"))
 }
@@ -364,15 +350,10 @@ pub fn run_del(targets: &[String], force: bool, dry_run: bool, verbose: bool) ->
         for (arg, side, name) in items {
             let mut bytes = img.side(side).to_vec();
             let mut vol = Volume::open_floppy_side(&mut bytes[..])?;
-            let entries = if Pattern::is_wildcard(&name) {
-                vol.glob(&Pattern::parse(&name)?)
-            } else {
-                let n = FileName::parse(&name)?;
-                vol.find(&n).into_iter().collect()
+            let entries = match vol.matching(&name) {
+                Err(e @ DiskError::NotFound(_)) => bail!("{arg}: {e}"),
+                r => r?,
             };
-            if entries.is_empty() {
-                bail!("{arg}: {}", DiskError::NotFound(name));
-            }
             for e in &entries {
                 vol.delete(e, force)?;
                 narrate(verbose, format!("{}: freed {} bytes", e.name, e.size));

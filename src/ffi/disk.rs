@@ -5,10 +5,10 @@
 //! calls work on a copy and write it back only on success, so an error never leaves a
 //! half-changed side.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 
-use super::{clear_error, finish_bytes, guard, opt_str, set_error, slice, SdeLineEnding, SDE_ERR, SDE_ERR_ARGS, SDE_OK};
-use crate::diskfs::{DiskError, DosTimestamp, FileName, Pattern, Volume};
+use super::{finish_bytes, guard, opt_str, set_error, slice, SdeLineEnding, SDE_ERR, SDE_ERR_ARGS, SDE_OK};
+use crate::diskfs::{DiskError, DosTimestamp, FileName, Volume};
 use crate::registry::Device;
 use crate::transfer::{self, DiskFileKind, Endpoint, Format, GetSpec, PutSpec};
 
@@ -137,14 +137,6 @@ unsafe fn side<'a>(p: *const u8, len: usize) -> Option<&'a [u8]> {
     Some(std::slice::from_raw_parts(p, len))
 }
 
-unsafe fn required_str<'a>(p: *const c_char) -> Option<&'a str> {
-    if p.is_null() {
-        None
-    } else {
-        CStr::from_ptr(p).to_str().ok()
-    }
-}
-
 fn kind_of(k: DiskFileKind) -> (SdeDiskKind, u32, u32) {
     match k {
         DiskFileKind::Basic { .. } => (SdeDiskKind::Basic, 0, 0),
@@ -172,7 +164,6 @@ pub unsafe extern "C" fn sde_disk_list(
     out_free_bytes: *mut u32,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(bytes) = side(side_buf, side_len) else { return SDE_ERR_ARGS };
         if out_count.is_null() || (entries.is_null() && capacity > 0) {
             return SDE_ERR_ARGS;
@@ -188,12 +179,8 @@ pub unsafe extern "C" fn sde_disk_list(
                 Err(_) => (SdeDiskKind::Unknown, 0, 0),
             };
             let ts = e.timestamp();
-            let mut name = [0 as c_char; 13];
-            for (dst, &b) in name.iter_mut().zip(e.name.to_string().as_bytes().iter().take(12)) {
-                *dst = b as c_char;
-            }
             *entries.add(i) = SdeDirEntry {
-                name,
+                name: super::info::c_name(&e.name.to_string()),
                 attr: e.attr,
                 month: ts.month,
                 day: ts.day,
@@ -232,8 +219,7 @@ pub unsafe extern "C" fn sde_disk_get(
     out_kind: *mut SdeDiskKind,
 ) -> i32 {
     guard(|| {
-        clear_error();
-        let (Some(bytes), Some(name)) = (side(side_buf, side_len), required_str(name)) else {
+        let (Some(bytes), Some(name)) = (side(side_buf, side_len), opt_str(name)) else {
             return SDE_ERR_ARGS;
         };
         let result = (|| -> anyhow::Result<Vec<u8>> {
@@ -281,9 +267,8 @@ pub unsafe extern "C" fn sde_disk_put(
     when: *const SdeDiskTime,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let (Some(bytes), Some(name), Some(data)) =
-            (side(side_buf, side_len), required_str(name), slice(input, in_len))
+            (side(side_buf, side_len), opt_str(name), slice(input, in_len))
         else {
             return SDE_ERR_ARGS;
         };
@@ -346,21 +331,13 @@ pub unsafe extern "C" fn sde_disk_delete(
     out_deleted: *mut usize,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let (Some(bytes), Some(pat)) = (side(side_buf, side_len), opt_str(name_or_pattern)) else {
             return SDE_ERR_ARGS;
         };
         let mut copy = bytes.to_vec();
         let result = (|| -> anyhow::Result<usize> {
             let mut vol = Volume::open_floppy_side(&mut copy[..])?;
-            let entries = if Pattern::is_wildcard(pat) {
-                vol.glob(&Pattern::parse(pat)?)
-            } else {
-                vol.find(&FileName::parse(pat)?).into_iter().collect()
-            };
-            if entries.is_empty() {
-                return Err(DiskError::NotFound(pat.to_string()).into());
-            }
+            let entries = vol.matching(pat)?;
             for e in &entries {
                 vol.delete(e, flags & SDE_DISK_FORCE != 0)?;
             }

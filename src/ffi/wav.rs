@@ -7,7 +7,7 @@
 use std::ffi::c_char;
 
 use super::info::{c_name, SDE_FILE_NAME_SIZE};
-use super::{clear_error, finish_bytes, guard, opt_str, set_error, slice, SDE_ERR_ARGS, SDE_OK};
+use super::{finish_bytes, guard, opt_str, set_error, slice, SDE_ERR_ARGS, SDE_OK};
 use crate::wav::{self, EncodeOptions, Leader, TapeError, TapeFormat, TapeKind};
 
 /// Not a RIFF/WAVE file (or a WAV encoding that can't be read).
@@ -98,7 +98,6 @@ pub unsafe extern "C" fn sde_wav_count(
     out_issues: *mut usize,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else {
             return SDE_ERR_ARGS;
         };
@@ -138,7 +137,6 @@ pub unsafe extern "C" fn sde_wav_decode(
     out_file: *mut SdeWavFile,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else {
             return SDE_ERR_ARGS;
         };
@@ -212,7 +210,6 @@ pub unsafe extern "C" fn sde_wav_encode(
     out_len: *mut usize,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else {
             return SDE_ERR_ARGS;
         };

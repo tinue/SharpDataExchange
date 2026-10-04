@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::detokenize::LineEnding;
 use crate::header::{self, ParsedHeader};
 use crate::pocket_device::PocketDevice;
-use crate::serial::{self, RealTransport};
+use crate::serial;
 use crate::transfer::{self, GetSpec};
 use crate::{filename, receiver};
 
@@ -51,7 +51,7 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     opts.device.check_flow_control(opts.flow_control)?;
     let port_name = serial::resolve_port(opts.device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = RealTransport::open(&port_name, opts.device, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, opts.device, opts.flow_control)?;
     let idle_timeout = Duration::from_millis(opts.device.idle_timeout_ms());
     let raw = receiver::receive_until_done(&mut transport, idle_timeout, opts.raw)?;
     crate::verbosity::narrate(opts.verbose, format!("Received {} bytes", raw.len()));
@@ -107,14 +107,14 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     let mut bytes = raw.to_vec();
 
     if let Some(h) = header::find(raw) {
-        let same_family = family_matches(h.device, opts.device);
+        let same_family = h.device == opts.device.to_registry_device();
         if same_family {
             crate::verbosity::narrate(opts.verbose, "Stripping detected header");
             bytes = [&raw[..h.offset], &raw[h.payload_start()..]].concat();
         } else {
             crate::verbosity::narrate(
                 opts.verbose,
-                format!("Not stripping {} header, as device is {}", header_flavor(h.device), opts.device),
+                format!("Not stripping {} header, as device is {}", h.device.header_name(), opts.device),
             );
         }
     }
@@ -127,20 +127,6 @@ fn process_raw(raw: &[u8], opts: &GetOptions) -> Result<Outcome> {
     println!("Checksum (16-bit sum): 0x{checksum:04X}");
 
     Ok(Outcome { path, bytes, summary: format!("checksum 0x{checksum:04X}") })
-}
-
-fn family_matches(header_device: crate::registry::Device, cli_device: PocketDevice) -> bool {
-    match header_device {
-        crate::registry::Device::Pc1500 => cli_device.is_pc1500_family(),
-        crate::registry::Device::Pc1600 => cli_device.is_pc1600_family(),
-    }
-}
-
-fn header_flavor(device: crate::registry::Device) -> &'static str {
-    match device {
-        crate::registry::Device::Pc1500 => "CE-158",
-        crate::registry::Device::Pc1600 => "PC-1600",
-    }
 }
 
 /// Non-raw mode (§4 steps 3-6): detect content, branch on format, derive the output

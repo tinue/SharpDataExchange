@@ -141,10 +141,6 @@ impl DirEntry {
         self.attr & ATTR_PROTECTED != 0
     }
 
-    pub fn is_hidden(&self) -> bool {
-        self.attr & ATTR_HIDDEN != 0
-    }
-
     pub fn timestamp(&self) -> DosTimestamp {
         DosTimestamp::unpack(self.time, self.date)
     }
@@ -184,10 +180,6 @@ impl<B: AsRef<[u8]>> Volume<B> {
             return Err(DiskError::NotFormatted);
         }
         Ok(Volume { geo, buf })
-    }
-
-    pub fn geometry(&self) -> &Geometry {
-        &self.geo
     }
 
     pub fn into_inner(self) -> B {
@@ -237,6 +229,20 @@ impl<B: AsRef<[u8]>> Volume<B> {
 
     pub fn glob(&self, pattern: &Pattern) -> Vec<DirEntry> {
         self.list().into_iter().filter(|e| pattern.matches(&e.name)).collect()
+    }
+
+    /// The entries a user-given name or wildcard pattern selects; `NotFound` if none.
+    pub fn matching(&self, name_or_pattern: &str) -> Result<Vec<DirEntry>, DiskError> {
+        if Pattern::is_wildcard(name_or_pattern) {
+            let found = self.glob(&Pattern::parse(name_or_pattern)?);
+            if found.is_empty() {
+                return Err(DiskError::NotFound(name_or_pattern.to_string()));
+            }
+            Ok(found)
+        } else {
+            let n = FileName::parse(name_or_pattern)?;
+            Ok(vec![self.find(&n).ok_or_else(|| DiskError::NotFound(n.to_string()))?])
+        }
     }
 
     /// The cluster chain of `entry`, validated (no loops, no free or out-of-range links,

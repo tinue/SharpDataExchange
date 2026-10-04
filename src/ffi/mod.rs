@@ -206,7 +206,10 @@ unsafe fn finish_bytes(result: anyhow::Result<Vec<u8>>, out: *mut *mut u8, out_l
     }
 }
 
+/// Run an entry point's body: clears the last error first and turns a panic into
+/// `SDE_ERR_PANIC`.
 fn guard(f: impl FnOnce() -> i32) -> i32 {
+    clear_error();
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(code) => code,
         Err(_) => {
@@ -227,7 +230,6 @@ pub unsafe extern "C" fn sde_detect(
     out_kind: *mut SdeContent,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         if out_kind.is_null() {
             return SDE_ERR_ARGS;
@@ -256,7 +258,6 @@ pub unsafe extern "C" fn sde_tokenize(
     out_len: *mut usize,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         let nm = opt_str(name);
         match crate::convert::convert_with(
@@ -272,10 +273,7 @@ pub unsafe extern "C" fn sde_tokenize(
                 set_error("input is not ASCII BASIC");
                 SDE_ERR
             }
-            Err(e) => {
-                set_error(&e.to_string());
-                SDE_ERR
-            }
+            Err(e) => finish_bytes(Err(e), out, out_len),
         }
     })
 }
@@ -296,7 +294,6 @@ pub unsafe extern "C" fn sde_detokenize(
     out_len: *mut usize,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         let eol: LineEnding = line_ending.into();
 
@@ -334,7 +331,6 @@ pub unsafe extern "C" fn sde_convert(
     out_kind: *mut SdeContent,
 ) -> i32 {
     guard(|| {
-        clear_error();
         let Some(data) = slice(input, in_len) else { return SDE_ERR_ARGS };
         let nm = opt_str(name);
         match crate::convert::convert_with(
@@ -351,10 +347,7 @@ pub unsafe extern "C" fn sde_convert(
                 }
                 finish_bytes(Ok(o.bytes), out, out_len)
             }
-            Err(e) => {
-                set_error(&e.to_string());
-                SDE_ERR
-            }
+            Err(e) => finish_bytes(Err(e), out, out_len),
         }
     })
 }

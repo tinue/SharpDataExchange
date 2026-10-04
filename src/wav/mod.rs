@@ -111,8 +111,13 @@ pub struct TapeFile {
 }
 
 impl TapeFile {
+    /// How far the recording ran fast (+) or slow (−) of nominal, in percent.
+    pub fn speed_percent(&self) -> f64 {
+        (self.speed - 1.0) * 100.0
+    }
+
     pub fn autorun(&self) -> bool {
-        self.kind == TapeKind::Machine && self.entry & 0xFFFF != 0xFFFF
+        self.kind == TapeKind::Machine && crate::transfer::is_autorun(self.entry)
     }
 }
 

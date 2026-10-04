@@ -299,7 +299,7 @@ fn analyze_headered<'a>(a: &mut Analysis<'a>, data: &'a [u8], h: &ParsedHeader) 
             };
             s.load_addr = h.start_addr;
             s.run_addr = h.run_addr;
-            s.autorun = h.run_addr & 0xFFFF != crate::transfer::PC1600_NO_AUTORUN;
+            s.autorun = crate::transfer::is_autorun(h.run_addr);
             a.guess = Some(cpu_guess::guess_cpu(a.payload));
         }
         FileType::Reserve => {
@@ -454,7 +454,7 @@ fn machine_details(info: &mut FileInfo, h: &ParsedHeader) {
     if h.length > 0 {
         info.detail("end address", addr(h.start_addr + h.length as u32 - 1));
     }
-    let run = if h.run_addr & 0xFFFF == crate::transfer::PC1600_NO_AUTORUN {
+    let run = if !crate::transfer::is_autorun(h.run_addr) {
         format!("none (0x{:0w$X}, no auto-start)", h.run_addr)
     } else {
         addr(h.run_addr)
@@ -531,8 +531,7 @@ fn line_details(info: &mut FileInfo, lines: &[String]) {
 }
 
 fn text_details(info: &mut FileInfo, data: &[u8]) {
-    let body = data.split(|&b| b == 0x1A).next().unwrap_or(data);
-    let text = String::from_utf8_lossy(body);
+    let text = String::from_utf8_lossy(crate::text::before_eof(data));
     info.detail("lines", text.lines().count().to_string());
     eol_details(info, data);
 }
@@ -665,7 +664,7 @@ fn describe_wav(data: &[u8]) -> FileInfo {
             f.name,
             f.start_time,
             f.end_time,
-            (f.speed - 1.0) * 100.0
+            f.speed_percent()
         ));
     }
     info.warnings.extend(r.issues.iter().map(wav::issue_text));
@@ -684,7 +683,7 @@ fn file_line(f: &TapeFile) -> String {
 /// A single tape file's details: tape facts, then what its payload is (the same details
 /// `sde info` shows for the serial image).
 fn tape_file_details(info: &mut FileInfo, f: &TapeFile) {
-    info.detail("tape speed", format!("{:+.1} %", (f.speed - 1.0) * 100.0));
+    info.detail("tape speed", format!("{:+.1} %", f.speed_percent()));
     if f.format == TapeFormat::Pc1600Ce1600p && f.header.len() >= 0x1D {
         let d = &f.header[0x19..0x1D];
         info.detail(

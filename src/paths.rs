@@ -220,7 +220,17 @@ fn write_output(in_path: &Path, out_path: &Path, bytes: &[u8], verbose: bool) ->
     Ok(())
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
+/// Write one file got from a disk image or tape (`label` names it there), or under
+/// `dry_run` only say what would be written. Returns the line to report.
+pub(crate) fn write_got_file(label: &str, path: &Path, bytes: &[u8], what: &str, dry_run: bool) -> Result<String> {
+    if dry_run {
+        return Ok(format!("Dry run: would write {} bytes to {} ({what})", bytes.len(), path.display()));
+    }
+    std::fs::write(path, bytes).with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(format!("{label} -> {} ({what}, {} bytes)", path.display(), bytes.len()))
+}
+
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,

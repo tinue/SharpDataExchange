@@ -114,7 +114,7 @@ pub fn decode_source(src: &WavSource, verbose: bool) -> Result<Vec<TapeFile>> {
                 describe(f),
                 f.start_time,
                 f.format.describe(),
-                (f.speed - 1.0) * 100.0
+                f.speed_percent()
             ),
         );
     }
@@ -251,13 +251,7 @@ pub fn run_get_wav(src: &WavSource, output: Option<&str>, default_dir: &Path, o:
             Some(dir) => dir.join(host_name(f, &x, o.format)),
             None => PathBuf::from(crate::filename::append_ext_if_missing(output.expect("no dir => file"), x.ext)),
         };
-        let what = x.content.describe();
-        if o.dry_run {
-            msgs.push(format!("Dry run: would write {} bytes to {} ({what})", x.bytes.len(), path.display()));
-        } else {
-            std::fs::write(&path, &x.bytes).with_context(|| format!("cannot write {}", path.display()))?;
-            msgs.push(format!("{} -> {} ({what}, {} bytes)", describe(f), path.display(), x.bytes.len()));
-        }
+        msgs.push(crate::paths::write_got_file(&describe(f), &path, &x.bytes, x.content.describe(), o.dry_run)?);
     }
     if msgs.is_empty() {
         bail!("{}: nothing on the tape could be converted", src.path.display());
@@ -316,10 +310,8 @@ pub fn run_convert_to_wav(
         in_path.with_extension("wav")
     };
     let out = wav_output(outfile, default);
-    if let (Ok(a), Ok(b)) = (in_path.canonicalize(), out.canonicalize()) {
-        if a == b {
-            bail!("output {} would overwrite the input file; give a different output file", out.display());
-        }
+    if crate::paths::same_file(&in_path, &out) {
+        bail!("output {} would overwrite the input file; give a different output file", out.display());
     }
     write_tape(&files, &out, opts, false, verbose)
 }
@@ -393,7 +385,7 @@ pub fn run_play(input: &str, o: &PlayOptions) -> Result<String> {
     let samples = if as_recorded {
         let path = &src.as_ref().expect("as_recorded => WAV").path;
         let (s, r) = wav::read_samples(&std::fs::read(path)?)?;
-        crate::audio_out::resample(&s, r, rate)
+        crate::audio_out::resample(s, r, rate)
     } else {
         wav::encode_samples(&files, &opts(rate))?
     };

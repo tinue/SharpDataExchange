@@ -45,15 +45,6 @@ impl Content {
             Content::Unknown => "unrecognized content",
         }
     }
-
-    /// The tokenized-BASIC device, if this is a tokenized-BASIC kind.
-    pub fn tokenized_device(self) -> Option<Device> {
-        match self {
-            Content::Ce158Basic => Some(Device::Pc1500),
-            Content::Pc1600Basic => Some(Device::Pc1600),
-            _ => None,
-        }
-    }
 }
 
 pub fn detect(data: &[u8]) -> Content {
@@ -99,30 +90,24 @@ pub fn detect_from_header(header: Option<&header::ParsedHeader>, data: &[u8]) ->
 /// The first non-blank line of `data` decoded as CP437 text, or `None` if `data` isn't
 /// decodable as plain text at all (contains binary control bytes).
 fn first_non_blank_line(data: &[u8]) -> Option<String> {
-    if data
-        .iter()
-        .any(|&b| b < 0x20 && !matches!(b, 0x09 | 0x0A | 0x0D | 0x1A))
-    {
+    if has_binary_controls(data) {
         return None;
     }
     let text = crate::cp437::decode(data);
     text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
 }
 
+/// Control bytes other than TAB/LF/CR/SUB, i.e. the data is binary, not text.
+fn has_binary_controls(data: &[u8]) -> bool {
+    data.iter().any(|&b| b < 0x20 && !matches!(b, 0x09 | 0x0A | 0x0D | 0x1A))
+}
+
 fn looks_like_ascii_basic(data: &[u8]) -> bool {
-    // Reject if it contains control bytes other than TAB/LF/CR/SUB — i.e. it's binary.
-    if data
-        .iter()
-        .any(|&b| b < 0x20 && !matches!(b, 0x09 | 0x0A | 0x0D | 0x1A))
-    {
+    if has_binary_controls(data) {
         return false;
     }
     // A DOS/PC-1600 end-of-file byte ends the listing.
-    let data = match data.iter().position(|&b| b == 0x1A) {
-        Some(i) => &data[..i],
-        None => data,
-    };
-    let text = crate::cp437::decode(data);
+    let text = crate::cp437::decode(crate::text::before_eof(data));
     let mut checked = 0usize;
     let mut matched = 0usize;
     for line in text.lines() {

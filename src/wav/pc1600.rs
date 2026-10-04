@@ -193,7 +193,7 @@ pub(super) fn encode(s: &mut Synth, f: &TapeFile, leader: Leader) -> Result<(), 
         return Err(TapeError::Unsupported(format!("{len} bytes is too long for a PC-1600 tape")));
     }
     let (load, entry) = match f.kind {
-        TapeKind::Machine if f.entry & 0xFFFF == 0xFFFF => (f.load, 0xFF_FFFF),
+        TapeKind::Machine if !crate::transfer::is_autorun(f.entry) => (f.load, 0xFF_FFFF),
         TapeKind::Machine => (f.load, f.entry),
         _ => (0, 0),
     };

@@ -93,9 +93,9 @@ impl Output {
 }
 
 /// Linear-interpolation resampling (for playing a WAV at the device's rate).
-pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
+pub fn resample(samples: Vec<f32>, from: u32, to: u32) -> Vec<f32> {
     if from == to || samples.is_empty() {
-        return samples.to_vec();
+        return samples;
     }
     let step = from as f64 / to as f64;
     let n = (samples.len() as f64 / step) as usize;
