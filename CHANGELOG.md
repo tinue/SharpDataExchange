@@ -11,7 +11,7 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
-## [0.3.3] - WIP
+## [0.3.3] - 2026-10-04
 
 ### Added
 
