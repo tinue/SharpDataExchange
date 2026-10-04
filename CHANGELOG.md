@@ -13,6 +13,32 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.3] - WIP
 
+### Added
+
+- **Cassette WAV files** for the PC-1500 / PC-1500A with CE-150 and the PC-1600 with
+  CE-1600P (MODE 0): BASIC programs, machine code and the PC-1500 Reserve Area.
+  - Reading needs no option: a WAV is recognized by its content. `sde info tape.wav`
+    names the tape format and every file on it; `sde get tape.wav` and
+    `sde convert tape.wav` write the files as a received file would be (`tape.wav:NAME`
+    picks one); `sde put tape.wav` sends it over serial or onto a floppy image.
+  - Decoding is tolerant — 5 kHz to 192 kHz, 8 to 32 bit or float, mono or stereo,
+    quiet, noisy, inverted, ±25 % speed, wow and flutter — and safe: a file is only
+    accepted when all of its checksums match; damaged ones are reported with their
+    position on the tape.
+  - `-f wav` writes a WAV: `sde convert prog.bas -f wav`, `sde get -f wav` (serial or
+    floppy image), with `--name`, `--sample-rate` and `--leader` (default about 2 s on
+    the PC-1500 and 3 s on the PC-1600 instead of the ROMs' 8 s / 3.3 s; `rom` for the
+    original length).
+  - `sde put <file> -f wav` plays the tape through the computer's default audio output,
+    to load programs into a pocket computer with a CE-150 / CE-1600P but no CE-158.
+  - C ABI: `sde_wav_count`, `sde_wav_decode`, `sde_wav_encode`; `sde_file_kind` reports
+    `wav-pc1500`, `wav-pc1600` and `wav`. See library.md.
+
+### Changed
+
+- Building `sde` on Linux now needs the ALSA development package (`libasound2-dev`)
+  for the audio output. The library build (`--no-default-features`) is unchanged.
+
 ## [0.3.2] - 2026-09-30
 
 ### Changed

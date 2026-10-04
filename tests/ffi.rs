@@ -449,6 +449,128 @@ fn file_kind_null_arguments() {
 
 // ---- generated-file drift guards -------------------------------------------------
 
+fn wav_encode(image: &[u8], leader_ms: u32, name: Option<&str>) -> Vec<u8> {
+    let name = name.map(|n| CString::new(n).unwrap());
+    let mut out = ptr::null_mut();
+    let mut out_len = 0usize;
+    let rc = unsafe {
+        sde_wav_encode(
+            image.as_ptr(),
+            image.len(),
+            22050,
+            leader_ms,
+            name.as_ref().map_or(ptr::null(), |n| n.as_ptr()),
+            &mut out,
+            &mut out_len,
+        )
+    };
+    assert_eq!(rc, SDE_OK, "err: {}", last_error());
+    take_buf(out, out_len)
+}
+
+#[test]
+fn wav_round_trip_both_formats() {
+    for fixture_name in [
+        "depreciation-tokenized-ce158header.bin",
+        "depreciation-tokenized-pc1600header.bin",
+    ] {
+        let image = fixture(fixture_name);
+        let wav = wav_encode(&image, 500, Some("DEPR"));
+        assert_eq!(
+            file_kind(&wav),
+            if fixture_name.contains("ce158") {
+                "wav-pc1500"
+            } else {
+                "wav-pc1600"
+            }
+        );
+
+        let (mut count, mut issues) = (0usize, 0usize);
+        assert_eq!(
+            unsafe { sde_wav_count(wav.as_ptr(), wav.len(), &mut count, &mut issues) },
+            SDE_OK
+        );
+        assert_eq!((count, issues), (1, 0));
+
+        let mut out = ptr::null_mut();
+        let mut out_len = 0usize;
+        let mut f = std::mem::MaybeUninit::<SdeWavFile>::uninit();
+        let rc = unsafe {
+            sde_wav_decode(
+                wav.as_ptr(),
+                wav.len(),
+                0,
+                &mut out,
+                &mut out_len,
+                f.as_mut_ptr(),
+            )
+        };
+        assert_eq!(rc, SDE_OK, "err: {}", last_error());
+        let got = take_buf(out, out_len);
+        let f = unsafe { f.assume_init() };
+        assert_eq!(cstr(f.name.as_ptr()), "DEPR");
+        assert_eq!(f.kind, SdeTapeKind::Basic);
+        // Same payload; the CE-158 name field now says DEPR.
+        assert_eq!(
+            got[got.len() - f.payload_len..],
+            image[image.len() - f.payload_len..]
+        );
+        assert_eq!(file_info(&got).payload_len, f.payload_len);
+
+        // Past the last file: an argument error.
+        let rc = unsafe {
+            sde_wav_decode(
+                wav.as_ptr(),
+                wav.len(),
+                1,
+                &mut out,
+                &mut out_len,
+                ptr::null_mut(),
+            )
+        };
+        assert_eq!(rc, SDE_ERR_ARGS);
+    }
+}
+
+#[test]
+fn wav_errors() {
+    let mut count = 0usize;
+    let not_wav = b"10 PRINT 1\n";
+    assert_eq!(
+        unsafe { sde_wav_count(not_wav.as_ptr(), not_wav.len(), &mut count, ptr::null_mut()) },
+        SDE_ERR_WAV_FORMAT
+    );
+    // A valid WAV of silence: no signal.
+    let mut silent = wav_encode(
+        &fixture("depreciation-tokenized-ce158header.bin"),
+        500,
+        None,
+    );
+    silent[44..].fill(0);
+    assert_eq!(
+        unsafe { sde_wav_count(silent.as_ptr(), silent.len(), &mut count, ptr::null_mut()) },
+        SDE_ERR_WAV_NO_SIGNAL
+    );
+    assert_eq!(file_kind(&silent), "damaged");
+    // A headerless input can't be encoded.
+    let mut out = ptr::null_mut();
+    let mut out_len = 0usize;
+    let raw = [1u8, 2, 3];
+    let rc = unsafe {
+        sde_wav_encode(
+            raw.as_ptr(),
+            raw.len(),
+            48000,
+            0,
+            ptr::null(),
+            &mut out,
+            &mut out_len,
+        )
+    };
+    assert_eq!(rc, SDE_ERR_WAV_UNSUPPORTED);
+    assert!(last_error().contains("header"), "{}", last_error());
+}
+
 #[test]
 fn header_is_current() {
     // build.rs regenerates include/sharpdx.h on every build; just assert it is non-empty

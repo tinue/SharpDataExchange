@@ -57,8 +57,10 @@ pub struct SdeFileInfo {
 
 /// Classify `in` as a one-word token: `basic-ascii`, `basic-pc1500`, `basic-pc1600`,
 /// `ml-lh5801`, `ml-z80`, `raw-lh5801`, `raw-z80`, `raw`, `reserve`, `reserve-text`,
-/// `variables`, `variables-text`, `text`, `empty` — or `damaged` if the file has a
-/// fatal problem (`SDE_PROBLEM_FATAL`). `raw-*` are heuristic CPU guesses.
+/// `variables`, `variables-text`, `text`, `empty`, `wav-pc1500`, `wav-pc1600`, `wav` —
+/// or `damaged` if the file has a fatal problem (`SDE_PROBLEM_FATAL`). `raw-*` are
+/// heuristic CPU guesses. For a cassette WAV (`wav-*`) the other `SdeFileInfo` fields
+/// describe the first file on the tape; `sde_wav_decode` gets its serial image.
 /// `*out_kind` receives a static NUL-terminated string: do not free it.
 ///
 /// # Safety
@@ -99,17 +101,7 @@ pub unsafe extern "C" fn sde_file_info(input: *const u8, in_len: usize, out: *mu
             return SDE_ERR_ARGS;
         }
         let s = info::classify(data);
-        let mut name = [0 as c_char; SDE_FILE_NAME_SIZE];
-        if let Some(n) = &s.name {
-            // Truncate on a character boundary, leaving room for the NUL.
-            let mut end = n.len().min(SDE_FILE_NAME_SIZE - 1);
-            while !n.is_char_boundary(end) {
-                end -= 1;
-            }
-            for (dst, &b) in name.iter_mut().zip(&n.as_bytes()[..end]) {
-                *dst = b as c_char;
-            }
-        }
+        let name = c_name(s.name.as_deref().unwrap_or(""));
         *out = SdeFileInfo {
             kind: s.kind.as_cstr().as_ptr(),
             problems: s.problems,
@@ -122,4 +114,17 @@ pub unsafe extern "C" fn sde_file_info(input: *const u8, in_len: usize, out: *mu
         };
         SDE_OK
     })
+}
+
+/// `n` as a NUL-terminated UTF-8 name field, truncated on a character boundary.
+pub(super) fn c_name(n: &str) -> [c_char; SDE_FILE_NAME_SIZE] {
+    let mut name = [0 as c_char; SDE_FILE_NAME_SIZE];
+    let mut end = n.len().min(SDE_FILE_NAME_SIZE - 1);
+    while !n.is_char_boundary(end) {
+        end -= 1;
+    }
+    for (dst, &b) in name.iter_mut().zip(&n.as_bytes()[..end]) {
+        *dst = b as c_char;
+    }
+    name
 }

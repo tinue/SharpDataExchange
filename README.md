@@ -2,8 +2,9 @@
 
 Transfer BASIC programs and machine-language code to/from a Sharp PC-1500 /
 PC-1500A / PC-1600 pocket computer over serial, read and write files on
-[Calc-U-1600](https://github.com/tinue/Calc-U-1600) CE-1600F floppy images, and
-tokenize/de-tokenize BASIC listings offline — no Java runtime, a single
+[Calc-U-1600](https://github.com/tinue/Calc-U-1600) CE-1600F floppy images, read and
+write cassette-tape WAV files (and play them to a CE-150 / CE-1600P through the sound
+output), and tokenize/de-tokenize BASIC listings offline — no Java runtime, a single
 self-contained binary. This is the
 Rust reimplementation of the Java
 [`SharpDataExchangeJava`](https://github.com/tinue/SharpDataExchangeJava), with
@@ -67,7 +68,10 @@ online on first run); the archive itself carries no stapled ticket.
 cargo build --release
 ```
 
-`target/release/sde` is the CLI; it links only the system C library.
+`target/release/sde` is the CLI; it links only the system C library and the system's
+audio library (for `put -f wav`). On Linux, building needs the ALSA development
+package (`libasound2-dev` on Debian/Ubuntu, `alsa-lib-devel` on Fedora). The library
+alone (`cargo build --release --lib --no-default-features`) needs neither.
 
 ---
 
@@ -153,6 +157,14 @@ best-effort attempt there and most likely has no effect.
 sde convert myprogram.bas       # -> myprogram.bbin (CE-158 header + tokens)
 ```
 
+### Load a program from a cassette WAV, or play one to the pocket computer
+
+```
+sde info game.wav               # what's on the tape (PC-1500 or PC-1600, every file)
+sde get game.wav                # -> GAME.bas (de-tokenized listing) / GAME.bin
+sde put myprogram.bas -f wav    # play it as a tape; type CLOAD on the pocket computer
+```
+
 ### Receive a BASIC program from the PC-1500
 
 On the **PC-1500**: `SETDEV U1,CI,CO` then `CSAVE`.
@@ -231,6 +243,48 @@ would silently undo sde's changes.
 The container format is specified in Calc-U-1600's `docs/Floppy-Image-Format.md`; the
 filesystem inside a side is Sharp's (see the `Sharp1500-1600-Ref` corpus,
 `PC-1600-Filesystem.md` §5).
+
+### Cassette WAV files
+
+The CE-150 (PC-1500 / PC-1500A) and the CE-1600P (PC-1600, MODE 0) save programs to
+cassette; a recording of such a tape is a WAV file. `sde` reads one wherever it reads
+a file, **recognized by content** (any `.wav` name, or none):
+
+- `sde info tape.wav` names the tape format — PC-1500 (CE-150) or PC-1600 (CE-1600P) —
+  and every file on it, with its type, name, addresses and content.
+- `sde get tape.wav [output]` and `sde convert tape.wav [output]` write each file on
+  the tape as `get` writes a received one (BASIC as a listing, machine code with its
+  header). `tape.wav:NAME` picks one file of several.
+- `sde put tape.wav` sends the file on the tape over serial (or onto a floppy image,
+  `sde put tape.wav disk.floppy.yaml:A:`).
+
+A WAV is **written only with `-f wav`**; no default changes:
+
+- `sde convert prog.bas -f wav` / `sde get -f wav` write a WAV file,
+- `sde put prog.bas -f wav` plays the tape through the computer's **default audio
+  output** — for loading programs into a pocket computer that has a CE-150 or
+  CE-1600P (with a cable from the headphone jack to the recorder input) but no CE-158
+  serial interface.
+
+The tape format follows the file's header (CE-158 → PC-1500, PC-1600 header →
+PC-1600), else `--device`.
+
+**Reading is tolerant, but safe.** Recordings may be at any sample rate from 5 kHz, 8 to
+32 bits or float, mono or stereo (the louder channel is used), quiet (down to about
+−40 dBFS), noisy, polarity-inverted, played back up to 25 % too fast or too slow, and
+with several % of wow and flutter. A file is only accepted when every checksum on the
+tape matches; a damaged file is reported (`warning:` with its position on the tape),
+never half-read.
+
+**Writing is clean.** Phase-continuous tones at the nominal frequencies, the ROMs' own
+framing, 16-bit mono at 48 kHz (`--sample-rate`). The ROMs write a very long lead-in
+tone (PC-1500 about 8 s); sde writes about 2 s (PC-1500) or 3 s (PC-1600) by default,
+enough for `CLOAD` with the recorder on the remote. `--leader <seconds>` sets any
+length, `--leader rom` the original one.
+
+Supported: BASIC programs and machine code on both, plus the PC-1500's Reserve Area.
+PC-1500 `DAT` / `DEF` files and PC-1600 ASCII (`CSAVE ,A`) and data files are
+recognized and reported, but not converted.
 
 ### Who goes first
 
@@ -419,6 +473,44 @@ otherwise the host extension). A name after the side renames it (one input file 
 `--raw` writes every file exactly as stored. `--dry-run` never changes the image.
 `--port`, `--flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
 
+### Cassette WAV files: `get`, `put`, `convert`
+
+```
+sde get     [options] <tape.wav>[:<NAME>] [<output-file-or-dir>]
+sde convert [options] <tape.wav> [<output-file-or-dir>]
+sde put     [options] <tape.wav>[:<NAME>] [<image>.floppy.yaml:<side>:[<NAME.EXT>]]
+
+sde convert [options] <input> [<output.wav>] -f wav
+sde get     [options] -f wav [<output.wav>]
+sde get     [options] -f wav <image>.floppy.yaml:<side>:<NAME.EXT|pattern> [<output-or-dir>]
+sde put     [options] <input> -f wav
+```
+
+See [Cassette WAV files](#cassette-wav-files). A WAV source is found by content;
+`-f wav` makes a WAV the target. Reading a WAV takes `get`'s `--format`,
+`--skip-header`, `--eol` and `--dry-run`; files are named after the file on the tape
+(`LANDER.bas`). The input to `-f wav` is anything `put` could send: a BASIC listing
+(tokenized for `--device`, default `pc1500`), tokenized BASIC or machine code with a
+header, headerless machine code with `--start-address`, a Reserve Area (SDAR), or
+another WAV (re-encoded clean).
+
+| Option (with `-f wav`) | Description |
+|---|---|
+| `--name <NAME>` | File name on the tape (at most 16 characters). Default: the name in the header, else the input file's name, upper-cased. `CLOAD "NAME"` looks for it. |
+| `--leader <SECONDS\|rom>` | Lead-in tone before each file. Default about 2 s (PC-1500) / 3 s (PC-1600); `rom`: the ROMs' own length (about 8 s / 3.3 s). |
+| `--sample-rate <HZ>` | Sample rate of a written WAV file, 8000–192000 (default 48000). Playback (`put`) uses the audio device's rate. |
+| `--clean` | `put -f wav` of a WAV: decode it and play a freshly encoded tape instead of the recording. |
+| `-y`, `--yes` | `put -f wav`: start at once instead of waiting for Enter. |
+
+**Playing to the pocket computer (`put -f wav`).** Connect the computer's headphone
+output to the cassette interface's tape input: the plug the CE-150 or CE-1600P
+normally puts into the recorder's `EAR` socket. Turn the volume up (start high and
+lower it if loading fails). `sde` prints the format, length and what to type,
+then waits for Enter: type `CLOAD` (`CLOAD M` for machine code) on the pocket computer
+first, then press Enter. A WAV input is played as recorded (resampled to the device);
+`--clean` plays a re-encoded copy instead, which helps with a noisy recording.
+`--dry-run` reports the length without touching the audio device.
+
 ### `convert` — Tokenize / de-tokenize BASIC, add / strip a machine-code header, offline
 
 ```
@@ -530,6 +622,8 @@ LH5801 machine code, CE-158 header
 | `Variables, CE-158 header` / `Variables, SDAV text` | name, number of variables |
 | `Plain text` | line count, line endings, `1A` end mark |
 | `probably LH5801 machine code, no header (heuristic)` / `probably Z80 (SC7852) machine code, no header (heuristic)` / `binary data, no header; CPU not recognized` | size |
+| `PC-1500 (CE-150) cassette WAV: …` / `PC-1600 (CE-1600P, MODE 0) cassette WAV: …` | sample rate, bits, channels, length, level; for one file on the tape its tape speed, save date (PC-1600) and the details of its content as above; for several, one line per file. Damaged or unsupported files appear as `warning:` lines with their position on the tape. |
+| `WAV file, no PC-1500 / PC-1600 tape signal found` | the audio facts |
 
 Problems appear as `warning:` lines: a payload shorter than the header says, trailing
 bytes after it, `00` noise before the header, a header cut short, a BASIC payload that
@@ -829,6 +923,29 @@ sde del  Progs.floppy.yaml:A:OLD.BAS
 On the PC-1600: `LOAD "X:HELLO.BAS"`, `OPEN "X:NOTES.TXT" FOR INPUT AS #1`,
 `BLOAD "X:MON.BIN"`.
 
+### Load a program without a CE-158 (through the audio output)
+
+On the PC-1500 with CE-150: connect the computer's headphone output to the CE-150's
+`EAR` plug (the one that normally goes into the recorder) and turn the volume up. Then:
+
+```
+sde put lander.bas -f wav       # prints what to type, waits for Enter
+```
+
+Type `CLOAD` on the PC-1500, then press Enter on the computer. For machine code,
+`sde put mc.bin -f wav --start-address 7C01` and `CLOAD M`. For a PC-1600 with
+CE-1600P, add `-d pc1600` for a listing.
+
+### Digitize an old cassette
+
+Record the tape with any audio program (mono or stereo, 44.1 or 48 kHz), then:
+
+```
+sde info tape.wav               # which files survived, and how fast the tape ran
+sde get tape.wav programs/      # every file on it
+sde convert tape.wav clean.wav -f wav   # a clean copy for playing back later
+```
+
 ### Set up `pc1600emul` once, then omit `--port` every time
 
 ```
@@ -925,7 +1042,8 @@ work.
 Implemented: `convert` (offline tokenize/de-tokenize), `get`/`put` (serial
 transfer) for **BASIC programs, machine-language programs, text, Reserve Area, and
 Variables** (the latter two PC-1500/1500A-only, `get`/`put`-only), `dir`/`get`/`put`/
-`del` on Calc-U-1600 floppy images, and `config` (per-user defaults).
+`del` on Calc-U-1600 floppy images, cassette WAV files (PC-1500 + CE-150, PC-1600 +
+CE-1600P in MODE 0: read, write, play), and `config` (per-user defaults).
 
 Won't implement (permanent decisions, not just currently-undone work):
 
@@ -941,6 +1059,11 @@ Won't implement (permanent decisions, not just currently-undone work):
 
 Not implemented (may change):
 
+- Cassette WAVs: PC-1500 `DAT` / `DEF` files and PC-1600 ASCII and data files are
+  recognized but not converted; a PC-1600 in MODE 1 writes no tapes of its own (it reads
+  PC-1500 tapes, which sde writes with `-d pc1500`). Big-endian (RIFX), RF64 and
+  compressed WAV files are not read. Other Sharp pocket computers' tapes (PC-1261,
+  PC-1401, …) are not recognized.
 - Disk images: only CE-1600F floppies (`.floppy.yaml`). PC-1600 RAM-disk card images,
   raw `.img` dumps, and formatting a side (`INIT`) are not supported; real 2.5″ disks
   can't be read at all.

@@ -20,6 +20,8 @@ pub struct GetOptions {
     pub device: PocketDevice,
     pub port: Option<String>,
     pub format: Format,
+    /// `-f wav`: write the received file as a cassette WAV instead.
+    pub tape: Option<crate::wav_cmd::TapeOptions>,
     pub skip_header: bool,
     /// Line ending for listings / text written to the host file.
     pub eol: LineEnding,
@@ -54,6 +56,10 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     let raw = receiver::receive_until_done(&mut transport, idle_timeout, opts.raw)?;
     crate::verbosity::narrate(opts.verbose, format!("Received {} bytes", raw.len()));
 
+    if let Some(tape) = &opts.tape {
+        return write_received_tape(&raw, opts, tape);
+    }
+
     let outcome = if opts.raw {
         process_raw(&raw, opts)?
     } else {
@@ -72,6 +78,25 @@ pub fn run_get(opts: &GetOptions, config: &Config) -> Result<String> {
     std::fs::write(&outcome.path, &outcome.bytes)
         .with_context(|| format!("cannot write {}", outcome.path))?;
     Ok(format!("Saving to {}", outcome.path))
+}
+
+/// `-f wav`: the received file as a cassette WAV, named like a normal `get` names it.
+fn write_received_tape(
+    raw: &[u8],
+    opts: &GetOptions,
+    tape: &crate::wav_cmd::TapeOptions,
+) -> Result<String> {
+    let device = opts.device.to_registry_device();
+    let files = crate::wav_cmd::tape_files_from(raw, "unnamed", device, None, None, tape)?;
+    let header = header::find(raw);
+    let path = resolve_output_path(opts.output_file.as_deref(), header.as_ref(), "wav");
+    crate::wav_cmd::write_tape(
+        &files,
+        std::path::Path::new(&path),
+        tape,
+        opts.dry_run,
+        opts.verbose,
+    )
 }
 
 /// `--raw` mode (§4): strip a same-family header if found, leave a wrong-family one in
@@ -179,6 +204,7 @@ mod tests {
             flow_control: false,
             verbose: false,
             output_file: None,
+            tape: None,
         }
     }
 

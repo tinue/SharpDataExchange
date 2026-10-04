@@ -11,11 +11,15 @@
 //! `sde get`/`sde put` transfer BASIC or machine-language data to/from a real Pocket
 //! Computer over serial, or to/from a Calc-U-1600 floppy image; `sde dir`/`sde del` list
 //! and delete files on such an image.
+//!
+//! Cassette WAV files (PC-1500 + CE-150, PC-1600 + CE-1600P) are read wherever a file is
+//! (recognized by content), and written only with `-f wav`: `get -f wav` / `convert -f
+//! wav` write a WAV file, `put -f wav` plays the tape through the audio output.
 
 use std::io::{Read, Write};
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use sharpdx::config::Config;
 use sharpdx::disk_cmd::{self, DiskGetOptions, DiskPutOptions};
@@ -25,6 +29,8 @@ use sharpdx::put_cmd::{self, PutOptions};
 use sharpdx::registry::Device;
 use sharpdx::transfer::Format;
 use sharpdx::verbosity::{self, VerbosityFlag};
+use sharpdx::wav::Leader;
+use sharpdx::wav_cmd::{self, TapeOptions, WavGetOptions};
 use sharpdx::LineEnding;
 
 #[derive(Parser)]
@@ -36,8 +42,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Tokenize / de-tokenize a BASIC file, or add / strip a machine-language header,
-    /// offline (direction detected from content).
+    /// Tokenize / de-tokenize a BASIC file, add / strip a machine-language header, or
+    /// unpack a cassette WAV, offline (direction detected from content); `-f wav` writes
+    /// a cassette WAV.
     Convert {
         /// Input file. Omit to read from stdin (writes tokenized/de-tokenized bytes to stdout).
         infile: Option<String>,
@@ -50,9 +57,13 @@ enum Command {
         /// CRLF input are always accepted). `auto` = CRLF on Windows, LF elsewhere.
         #[arg(long, value_enum, default_value_t = EolArg::Auto)]
         eol: EolArg,
-        /// Rejected: direction is always detected from content.
-        #[arg(short = 'f', long, hide = true)]
-        format: Option<String>,
+        /// Only `wav`: write a cassette WAV file instead (a listing is tokenized first;
+        /// `-d` picks the PC-1500 or PC-1600 tape format for input without a header).
+        /// Otherwise the direction is detected from content.
+        #[arg(short = 'f', long, value_enum)]
+        format: Option<FormatArg>,
+        #[command(flatten)]
+        tape: TapeArgs,
         /// Add a machine-language header with this load address (hex, e.g. 38C5; PC-1600:
         /// 24-bit with the bank in the top byte) to a headerless input.
         #[arg(long, value_parser = parse_hex_u32)]
@@ -65,7 +76,8 @@ enum Command {
         verbose: bool,
     },
 
-    /// Describe a file: content type, header, addresses, size.
+    /// Describe a file: content type, header, addresses, size; for a cassette WAV, the
+    /// tape format and every file on it.
     Info {
         /// The file to describe.
         file: String,
@@ -74,12 +86,13 @@ enum Command {
         verbose: bool,
     },
 
-    /// Receive from the Pocket Computer over serial, or copy a file off a disk image
-    /// (`sde get <image>.floppy.yaml:<A|B>:<NAME.EXT|pattern> [output]`), and write it to
-    /// a file.
+    /// Receive from the Pocket Computer over serial, copy a file off a disk image
+    /// (`sde get <image>.floppy.yaml:<A|B>:<NAME.EXT|pattern> [output]`) or a cassette
+    /// WAV (`sde get <tape.wav>[:NAME] [output]`), and write it to a file.
     Get {
         /// Serial: `[output_file]` (derived from the header, or `unnamed`, if omitted).
         /// Disk image: `<image>:<side>:<name> [output file or directory]`.
+        /// Cassette WAV: `<tape.wav>[:NAME] [output file or directory]`.
         #[arg(num_args = 0..=2)]
         args: Vec<String>,
         /// Target device: determines baud rate (default pc1500). Disk images are PC-1600.
@@ -88,10 +101,12 @@ enum Command {
         /// Serial port name (auto-detected if omitted).
         #[arg(short, long)]
         port: Option<String>,
-        /// Output format (serial default: ascii; disk default: per content). `ascii` on
-        /// machine-language content is an error.
+        /// Output format (serial default: ascii; disk and WAV default: per content).
+        /// `ascii` on machine-language content is an error; `wav` writes a cassette WAV.
         #[arg(short = 'f', long, value_enum)]
         format: Option<FormatArg>,
+        #[command(flatten)]
+        tape: TapeArgs,
         /// Omit the serial header from the saved binary file (`--format binary` only).
         #[arg(long)]
         skip_header: bool,
@@ -120,8 +135,10 @@ enum Command {
         quiet: bool,
     },
 
-    /// Read a file and send it to the Pocket Computer over serial, or store files on a
-    /// disk image (`sde put <file>... <image>.floppy.yaml:<A|B>:[NAME.EXT]`).
+    /// Read a file and send it to the Pocket Computer over serial, store files on a disk
+    /// image (`sde put <file>... <image>.floppy.yaml:<A|B>:[NAME.EXT]`), or play it as a
+    /// cassette tape through the audio output (`-f wav`). A cassette WAV input
+    /// (`<tape.wav>[:NAME]`) is decoded first.
     Put {
         /// Serial: the input file. Disk image: input file(s), then the target
         /// `<image>:<side>:` (optionally with a file name for a single input).
@@ -133,9 +150,19 @@ enum Command {
         /// Serial port name (auto-detected if omitted).
         #[arg(short, long)]
         port: Option<String>,
-        /// Override detected input format.
+        /// Override detected input format; `wav` plays the file as a cassette tape through
+        /// the default audio output instead of sending it over serial.
         #[arg(short = 'f', long, value_enum)]
         format: Option<FormatArg>,
+        #[command(flatten)]
+        tape: TapeArgs,
+        /// `-f wav` with a WAV input: decode it and play a freshly encoded tape instead of
+        /// the recording.
+        #[arg(long)]
+        clean: bool,
+        /// `-f wav`: start playing at once instead of waiting for Enter.
+        #[arg(short, long)]
+        yes: bool,
         /// Load address for a headerless machine-language input (hex, e.g. 38C5).
         #[arg(long, value_parser = parse_hex_u32)]
         start_address: Option<u32>,
@@ -237,14 +264,54 @@ impl From<DeviceArg> for PocketDevice {
 enum FormatArg {
     Ascii,
     Binary,
+    /// A cassette tape (PC-1500: CE-150, PC-1600: CE-1600P).
+    Wav,
 }
 
-impl From<FormatArg> for Format {
-    fn from(f: FormatArg) -> Self {
-        match f {
-            FormatArg::Ascii => Format::Ascii,
-            FormatArg::Binary => Format::Binary,
+/// The host-file format of `-f`, `None` for `wav` (which is handled separately).
+fn host_format(f: Option<FormatArg>) -> Option<Format> {
+    match f? {
+        FormatArg::Ascii => Some(Format::Ascii),
+        FormatArg::Binary => Some(Format::Binary),
+        FormatArg::Wav => None,
+    }
+}
+
+/// `--name`, `--sample-rate`, `--leader`: how `-f wav` writes a tape.
+#[derive(Args, Clone)]
+struct TapeArgs {
+    /// `-f wav`: file name on the tape (default: the header's name, else the input
+    /// file's name).
+    #[arg(long, value_name = "NAME")]
+    name: Option<String>,
+    /// `-f wav`: sample rate of a written WAV file (default 48000; playback uses the
+    /// output device's own rate).
+    #[arg(long, value_name = "HZ", value_parser = clap::value_parser!(u32).range(8000..=192000))]
+    sample_rate: Option<u32>,
+    /// `-f wav`: lead-in tone before each file, in seconds; `default` (about 2 s on the
+    /// PC-1500, 3 s on the PC-1600) or `rom` (the original length, about 8 s / 3.3 s).
+    #[arg(long, value_name = "SECONDS|rom", value_parser = wav_cmd::parse_leader)]
+    leader: Option<Leader>,
+}
+
+impl TapeArgs {
+    fn options(&self) -> TapeOptions {
+        TapeOptions {
+            name: self.name.clone(),
+            sample_rate: self.sample_rate.unwrap_or(wav_cmd::DEFAULT_SAMPLE_RATE),
+            leader: self.leader.unwrap_or(Leader::Default),
         }
+    }
+
+    /// The options for `-f wav`; an error if they're given without it.
+    fn for_format(&self, format: Option<FormatArg>) -> Result<Option<TapeOptions>> {
+        if format == Some(FormatArg::Wav) {
+            return Ok(Some(self.options()));
+        }
+        if self.name.is_some() || self.sample_rate.is_some() || self.leader.is_some() {
+            bail!("--name, --sample-rate and --leader only apply with -f wav");
+        }
+        Ok(None)
     }
 }
 
@@ -288,11 +355,47 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Convert { infile, outfile, device, eol, format, start_address, run_address, verbose } => {
-            if format.is_some() {
-                bail!("--format is not valid for convert (direction is detected from file content)");
+        Command::Convert { infile, outfile, device, eol, format, tape, start_address, run_address, verbose } => {
+            if matches!(format, Some(FormatArg::Ascii | FormatArg::Binary)) {
+                bail!("convert takes only -f wav (otherwise the direction is detected from file content)");
             }
+            let tape = tape.for_format(format)?;
             match infile {
+                Some(path) if tape.is_some() => {
+                    let t = tape.expect("checked");
+                    let msg = wav_cmd::run_convert_to_wav(
+                        &path,
+                        outfile.as_deref(),
+                        device.into(),
+                        start_address,
+                        run_address,
+                        &t,
+                        verbose,
+                    )?;
+                    println!("{msg}");
+                }
+                Some(path) if wav_cmd::wav_source(&path).is_some_and(|s| s.name.is_none()) => {
+                    if start_address.is_some() {
+                        bail!("--start-address does not apply to a cassette WAV (its files carry their addresses)");
+                    }
+                    let src = wav_cmd::wav_source(&path).expect("checked");
+                    let dir = src
+                        .path
+                        .parent()
+                        .map(std::path::Path::to_path_buf)
+                        .unwrap_or_default();
+                    let o = WavGetOptions {
+                        format: None,
+                        skip_header: false,
+                        eol: eol.into(),
+                        dry_run: false,
+                        verbose,
+                    };
+                    println!(
+                        "{}",
+                        wav_cmd::run_get_wav(&src, outfile.as_deref(), &dir, &o)?
+                    );
+                }
                 Some(path) => {
                     let opts = sharpdx::paths::ConvertOptions {
                         device: device.into(),
@@ -304,6 +407,7 @@ fn run() -> Result<()> {
                     let msg = sharpdx::paths::run_convert(&path, outfile.as_deref(), &opts)?;
                     println!("{msg}");
                 }
+                None if tape.is_some() => bail!("-f wav needs an input file"),
                 None if start_address.is_some() => {
                     bail!("--start-address needs an input file (stdin mode only tokenizes BASIC)")
                 }
@@ -332,14 +436,19 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Get { args, device, port, format, skip_header, eol, raw, dry_run, flowcontrol, verbose, quiet } => {
+        Command::Get { args, device, port, format, tape, skip_header, eol, raw, dry_run, flowcontrol, verbose, quiet } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
+            let tape = tape.for_format(format)?;
+            if tape.is_some() && (skip_header || raw) {
+                bail!("--skip-header and --raw do not apply with -f wav");
+            }
             if let Some(first) = args.first() {
                 if let Some(addr) = disk_cmd::parse_image_addr(first)? {
                     check_disk_options(device, port.as_deref(), flowcontrol)?;
                     let opts = DiskGetOptions {
-                        format: format.map(Into::into),
+                        format: host_format(format),
+                        tape,
                         skip_header,
                         raw,
                         eol: eol.into(),
@@ -349,6 +458,26 @@ fn run() -> Result<()> {
                     println!("{}", disk_cmd::run_get_disk(first, &addr, args.get(1).map(String::as_str), &opts)?);
                     return Ok(());
                 }
+                // A cassette WAV as the source (by content). With -f wav the first
+                // argument is the output file, never a source.
+                if let Some(src) = wav_cmd::wav_source(first).filter(|_| tape.is_none()) {
+                    if device.is_some() || port.is_some() || flowcontrol || raw {
+                        bail!("--device, --port, --flowcontrol and --raw do not apply to a cassette WAV source");
+                    }
+                    let o = WavGetOptions {
+                        format: host_format(format),
+                        skip_header,
+                        eol: eol.into(),
+                        dry_run,
+                        verbose: verbosity,
+                    };
+                    let out = args.get(1).map(String::as_str);
+                    println!(
+                        "{}",
+                        wav_cmd::run_get_wav(&src, out, std::path::Path::new("."), &o)?
+                    );
+                    return Ok(());
+                }
             }
             if args.len() > 1 {
                 bail!("serial get takes at most one output file (for a disk image use <image>.floppy.yaml:<side>:<name>)");
@@ -356,7 +485,8 @@ fn run() -> Result<()> {
             let opts = GetOptions {
                 device: device.unwrap_or(DeviceArg::Pc1500).into(),
                 port,
-                format: format.unwrap_or(FormatArg::Ascii).into(),
+                format: host_format(format).unwrap_or(Format::Ascii),
+                tape,
                 skip_header,
                 eol: eol.into(),
                 raw,
@@ -370,17 +500,58 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Put { inputs, device, port, format, start_address, run_address, raw, force, dry_run, flowcontrol, verbose, quiet } => {
+        Command::Put {
+            inputs,
+            device,
+            port,
+            format,
+            tape,
+            clean,
+            yes,
+            start_address,
+            run_address,
+            raw,
+            force,
+            dry_run,
+            flowcontrol,
+            verbose,
+            quiet,
+        } => {
             let config = Config::load()?;
             let verbosity = verbosity::resolve(flag(verbose, quiet), &config);
             let last = inputs.last().expect("clap requires at least one input");
+            if let Some(t) = tape.for_format(format)? {
+                if inputs.len() > 1 || disk_cmd::parse_image_addr(last)?.is_some() {
+                    bail!(
+                        "put -f wav plays one file through the audio output (no disk image target)"
+                    );
+                }
+                if port.is_some() || flowcontrol || raw || force {
+                    bail!("--port, --flowcontrol, --raw and --force do not apply with -f wav");
+                }
+                let o = wav_cmd::PlayOptions {
+                    device: device.map(Into::into),
+                    start_address,
+                    run_address,
+                    tape: t,
+                    clean,
+                    yes,
+                    dry_run,
+                    verbose: verbosity,
+                };
+                println!("{}", wav_cmd::run_play(last, &o)?);
+                return Ok(());
+            }
+            if clean || yes {
+                bail!("--clean and --yes only apply with -f wav");
+            }
             if let Some(addr) = disk_cmd::parse_image_addr(last)? {
                 if inputs.len() < 2 {
                     bail!("put needs the file(s) to store before the disk image target");
                 }
                 check_disk_options(device, port.as_deref(), flowcontrol)?;
                 let opts = DiskPutOptions {
-                    format: format.map(Into::into),
+                    format: host_format(format),
                     start_address,
                     run_address,
                     raw,
@@ -401,7 +572,7 @@ fn run() -> Result<()> {
             let opts = PutOptions {
                 device: device.map(Into::into),
                 port,
-                format: format.map(Into::into),
+                format: host_format(format),
                 start_address,
                 run_address,
                 raw,

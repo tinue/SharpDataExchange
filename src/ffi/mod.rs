@@ -26,6 +26,8 @@ mod disk;
 pub use disk::*;
 mod info;
 pub use info::*;
+mod wav;
+pub use wav::*;
 
 /// Target machine family.
 #[repr(C)]

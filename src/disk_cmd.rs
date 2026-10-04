@@ -142,6 +142,8 @@ fn describe_kind(kind: DiskFileKind) -> String {
 
 pub struct DiskGetOptions {
     pub format: Option<Format>,
+    /// `-f wav`: write each file as a cassette WAV (PC-1600 / CE-1600P format).
+    pub tape: Option<crate::wav_cmd::TapeOptions>,
     pub skip_header: bool,
     pub raw: bool,
     pub eol: LineEnding,
@@ -180,6 +182,25 @@ pub fn run_get_disk(arg: &str, addr: &ImageAddr, output: Option<&str>, o: &DiskG
     let mut msgs = Vec::new();
     for e in &entries {
         let stored = vol.read(e)?;
+        if let Some(tape) = &o.tape {
+            let files = crate::wav_cmd::tape_files_from(
+                &stored,
+                &e.name.stem(),
+                Device::Pc1600,
+                None,
+                None,
+                tape,
+            )
+            .with_context(|| e.name.to_string())?;
+            let path = match &out_dir {
+                Some(dir) => dir.join(format!("{}.wav", e.name.stem())),
+                None => crate::wav_cmd::wav_output(output, PathBuf::new()),
+            };
+            msgs.push(crate::wav_cmd::write_tape(
+                &files, &path, tape, o.dry_run, o.verbose,
+            )?);
+            continue;
+        }
         let (bytes, host_name, what) = if o.raw {
             (stored, e.name.to_string(), "unchanged".to_string())
         } else {
@@ -256,7 +277,8 @@ pub fn run_put_disk(inputs: &[String], arg: &str, addr: &ImageAddr, o: &DiskPutO
     let mut seen: Vec<FileName> = Vec::new();
     let mut msgs = Vec::new();
     for input in inputs {
-        let raw = std::fs::read(input).with_context(|| format!("cannot read {input}"))?;
+        let (raw, tape_name) = crate::wav_cmd::read_put_input(input, o.verbose)?;
+        let input = &tape_name.unwrap_or_else(|| input.clone());
         let h = header::find(&raw);
         let content = crate::detect::detect_from_header(h.as_ref(), &raw);
         narrate(o.verbose, format!("{input}: detected {}", content.describe()));

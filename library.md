@@ -2,8 +2,9 @@
 
 `libsharpdx` is the pure core of [SharpDataExchange](README.md) with no file I/O,
 packaged for embedding in another application — for example **Calc-U-1600**. It
-tokenizes and de-tokenizes Sharp PC-1500 / PC-1600 BASIC, and lists, reads, writes
-and deletes files on a CE-1600F floppy side, entirely in memory.
+tokenizes and de-tokenizes Sharp PC-1500 / PC-1600 BASIC, lists, reads, writes
+and deletes files on a CE-1600F floppy side, and decodes and encodes cassette-tape
+WAV files, entirely in memory.
 
 Three consumers share one core verbatim:
 
@@ -84,6 +85,10 @@ no reference to them.
 | `SDE_ERR_BAD_NAME` | `-9` | disk: not a valid 8.3 name |
 | `SDE_ERR_CORRUPT` | `-10` | disk: broken FAT chain or directory |
 | `SDE_ERR_DIRECTORY_FULL` | `-11` | disk: all 48 directory entries in use |
+| `SDE_ERR_WAV_FORMAT` | `-12` | WAV: not a RIFF/WAVE file, or an encoding that can't be read |
+| `SDE_ERR_WAV_NO_SIGNAL` | `-13` | WAV: no PC-1500 / PC-1600 tape signal on it |
+| `SDE_ERR_WAV_CORRUPT` | `-14` | WAV: a file was found but failed its checksums |
+| `SDE_ERR_WAV_UNSUPPORTED` | `-15` | WAV: content that can't be taken off / put on a tape |
 
 ### Entry points
 
@@ -152,6 +157,8 @@ not free it). The tokens are part of the stable API and are never renamed:
 | `variables` / `variables-text` | Variables behind a CE-158 header / as SDAV text |
 | `text` | plain text |
 | `empty` | nothing (`in_len == 0`; `in` may then be `NULL`) |
+| `wav-pc1500` / `wav-pc1600` | a cassette WAV with PC-1500 (CE-150) / PC-1600 (CE-1600P) files |
+| `wav` | a WAV file with no decodable PC-1500 / PC-1600 tape on it |
 | `damaged` | a file with a fatal problem (below) |
 
 Headers don't record the CPU: a CE-158 header is taken as LH5801 code (PC-1500
@@ -349,6 +356,46 @@ offset 65536 of the 128 KB image. The library never sees the `.floppy.yaml` file
   number of files removed.
 
 These are exactly the rules the `sde` CLI applies (see the README's disk-image table).
+
+## Cassette WAV files
+
+```c
+int32_t sde_wav_count (const uint8_t *in, size_t in_len,
+                       size_t *out_count, size_t *out_issues);
+int32_t sde_wav_decode(const uint8_t *in, size_t in_len, size_t index,
+                       uint8_t **out, size_t *out_len, SdeWavFile *out_file);
+int32_t sde_wav_encode(const uint8_t *in, size_t in_len, uint32_t sample_rate,
+                       uint32_t leader_ms, const char *name,
+                       uint8_t **out, size_t *out_len);
+```
+
+A tape file crosses the boundary as its **serial image** — CE-158 or PC-1600 header
+plus payload — the same bytes `sde_file_info`, `sde_detokenize` and a program loader
+already take. So a loader that handles `.bin` / `.bbin` files handles a WAV with one
+extra call: `sde_file_kind` reports `wav-pc1500` / `wav-pc1600` (with `sde_file_info`
+describing the first file on the tape), and `sde_wav_decode` turns the file into an
+image.
+
+* **`sde_wav_count`** — how many files on the tape decode safely; `*out_issues` (may be
+  `NULL`) how many were found but are damaged or unsupported.
+  `SDE_ERR_WAV_NO_SIGNAL` if there is no tape on it at all.
+* **`sde_wav_decode`** — file `index` (0-based, in tape order) as a serial image
+  (free with `sde_buf_free`); `SdeWavFile` (may be `NULL`) gives its tape format
+  (`SDE_TAPE_FORMAT_PC1500_CE150` / `…_PC1600_CE1600P`), kind, name, load / run address,
+  payload size, position on the tape and measured speed. A tape whose only file is
+  damaged fails with `SDE_ERR_WAV_CORRUPT` and says where.
+* **`sde_wav_encode`** — a serial image (BASIC, machine code, or PC-1500 Reserve Area)
+  as a 16-bit mono WAV at `sample_rate`. The tape format follows the header (CE-158 →
+  CE-150, PC-1600 → CE-1600P); `name` (may be `NULL`) overrides the name on the tape.
+  `leader_ms` is the lead-in tone: `SDE_WAV_LEADER_DEFAULT` (about 2 s / 3 s),
+  `SDE_WAV_LEADER_ROM` (the ROMs' own, about 8 s / 3.3 s) or a length in milliseconds.
+
+Decoding accepts any PCM (8–32 bit) or float WAV from 5 kHz up, mono or stereo, and
+tolerates speed error (±25 %), wow and flutter, low level and noise; it returns a file
+only when all of its checksums match. Each call decodes the whole WAV (a few
+milliseconds per minute of audio), so decode once and keep the image.
+
+In Rust the same is `sharpdx::wav` (`decode`, `encode`, `to_image`, `from_image`).
 
 ## Threading
 

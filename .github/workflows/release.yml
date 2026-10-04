@@ -63,9 +63,9 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Install libudev (Linux serial-port support)
+      - name: Install libudev + ALSA (Linux serial-port and audio support)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libasound2-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:

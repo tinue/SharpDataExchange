@@ -12,6 +12,7 @@ use crate::detect::{self, Content};
 use crate::header::{self, FileType, ParsedHeader};
 use crate::registry::{Device, Registry};
 use crate::scanner::SegmentMarker;
+use crate::wav::{self, DecodeReport, TapeError, TapeFile, TapeFormat};
 use crate::{convert, detokenize, reserve, text, variables};
 
 /// What a file is, as a stable one-word token ([`FileKind::as_str`]).
@@ -45,10 +46,16 @@ pub enum FileKind {
     Text,
     /// `empty`: zero bytes.
     Empty,
+    /// `wav-pc1500`: a cassette WAV with PC-1500 (CE-150) files.
+    WavPc1500,
+    /// `wav-pc1600`: a cassette WAV with PC-1600 (CE-1600P) files.
+    WavPc1600,
+    /// `wav`: a WAV file with no decodable PC-1500 / PC-1600 tape on it.
+    Wav,
 }
 
 impl FileKind {
-    pub const ALL: [FileKind; 14] = [
+    pub const ALL: [FileKind; 17] = [
         FileKind::BasicAscii,
         FileKind::BasicPc1500,
         FileKind::BasicPc1600,
@@ -63,6 +70,9 @@ impl FileKind {
         FileKind::VariablesText,
         FileKind::Text,
         FileKind::Empty,
+        FileKind::WavPc1500,
+        FileKind::WavPc1600,
+        FileKind::Wav,
     ];
 
     /// The token. Part of the stable API: never renamed.
@@ -87,6 +97,9 @@ impl FileKind {
             FileKind::VariablesText => c"variables-text",
             FileKind::Text => c"text",
             FileKind::Empty => c"empty",
+            FileKind::WavPc1500 => c"wav-pc1500",
+            FileKind::WavPc1600 => c"wav-pc1600",
+            FileKind::Wav => c"wav",
         }
     }
 }
@@ -109,6 +122,10 @@ pub mod problem {
 }
 
 /// What a program (e.g. a loader) needs to know about a file.
+///
+/// For a cassette WAV (`wav-*`) the fields describe the *first* file on the tape, and
+/// `payload_offset` / `payload_len` refer to its decoded payload, not to the WAV bytes
+/// (decode it with [`crate::wav::decode`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileSummary {
     pub kind: FileKind,
@@ -130,6 +147,9 @@ pub struct FileSummary {
 
 /// Classify `data`, the whole content of a file.
 pub fn classify(data: &[u8]) -> FileSummary {
+    if wav::is_wav(data) {
+        return wav_summary(data, &wav::decode(data));
+    }
     analyze(data).summary
 }
 
@@ -318,6 +338,9 @@ fn finish(a: &mut Analysis) {
 
 /// Describe `data`, the whole content of a file.
 pub fn describe(data: &[u8]) -> FileInfo {
+    if wav::is_wav(data) {
+        return describe_wav(data);
+    }
     let a = analyze(data);
     let s = &a.summary;
     let mut info = FileInfo::default();
@@ -345,6 +368,9 @@ pub fn describe(data: &[u8]) -> FileInfo {
         FileKind::Variables => format!("Variables, {hdr} header"),
         FileKind::VariablesText => "Variables, SDAV text".into(),
         FileKind::Text => "Plain text".into(),
+        FileKind::WavPc1500 | FileKind::WavPc1600 | FileKind::Wav => {
+            unreachable!("handled by describe_wav")
+        }
     };
 
     match s.kind {
@@ -539,6 +565,151 @@ fn eol_details(info: &mut FileInfo, data: &[u8]) {
     if data.contains(&0x1A) {
         info.detail("end-of-file mark", "1A (PC-1600 / DOS style)");
     }
+}
+
+/// Summary of a cassette WAV from its decode result.
+fn wav_summary(data: &[u8], r: &Result<DecodeReport, TapeError>) -> FileSummary {
+    let mut s = FileSummary {
+        kind: FileKind::Wav,
+        problems: 0,
+        payload_offset: 0,
+        payload_len: data.len(),
+        load_addr: 0,
+        run_addr: 0,
+        autorun: false,
+        name: None,
+    };
+    let Ok(r) = r else {
+        s.problems |= problem::BAD_PAYLOAD;
+        return s;
+    };
+    match r.format() {
+        Some(TapeFormat::Pc1500Ce150) => s.kind = FileKind::WavPc1500,
+        Some(TapeFormat::Pc1600Ce1600p) => s.kind = FileKind::WavPc1600,
+        None => {}
+    }
+    match r.files.first() {
+        Some(f) => {
+            s.payload_len = f.payload.len();
+            s.name = (!f.name.is_empty()).then(|| f.name.clone());
+            if f.kind == wav::TapeKind::Machine {
+                s.load_addr = f.load;
+                s.run_addr = f.entry;
+                s.autorun = f.autorun();
+            }
+            // The first file's own content problems (e.g. BASIC that doesn't
+            // de-tokenize) count, as for a serial image.
+            if let Ok(img) = wav::to_image(f) {
+                s.problems |= analyze(&img).summary.problems & problem::FATAL;
+            }
+        }
+        None => {
+            s.payload_len = 0;
+            s.problems |= problem::BAD_PAYLOAD;
+        }
+    }
+    s
+}
+
+fn describe_wav(data: &[u8]) -> FileInfo {
+    let r = wav::decode(data);
+    let s = wav_summary(data, &r);
+    let mut info = FileInfo::default();
+    info.detail("kind", s.kind.as_str());
+    info.detail("file size", format!("{} bytes", data.len()));
+    let r = match r {
+        Ok(r) => r,
+        Err(e) => {
+            info.summary = "WAV file, not readable".into();
+            info.warnings.push(e.to_string());
+            return info;
+        }
+    };
+    info.detail(
+        "audio",
+        format!(
+            "{} Hz, {}-bit {}, {}, {:.1} s",
+            r.sample_rate,
+            r.bits,
+            if r.float { "float" } else { "PCM" },
+            match r.channels {
+                1 => "mono".to_string(),
+                2 => "stereo".to_string(),
+                n => format!("{n} channels"),
+            },
+            r.duration
+        ),
+    );
+    info.detail("level", format!("{:.1} dBFS", r.level_dbfs));
+    let fmt = r.format().map(TapeFormat::describe);
+    info.summary = match (fmt, r.files.as_slice()) {
+        (None, _) => "WAV file, no PC-1500 / PC-1600 tape signal found".into(),
+        (Some(fmt), []) => format!("{fmt} cassette WAV, no file decoded safely"),
+        (Some(fmt), [f]) => format!("{fmt} cassette WAV: {}", file_line(f)),
+        (Some(fmt), files) => format!("{fmt} cassette WAV, {} files", files.len()),
+    };
+    match r.files.as_slice() {
+        [f] => tape_file_details(&mut info, f),
+        files => {
+            for (i, f) in files.iter().enumerate() {
+                info.detail(
+                    &format!("file {}", i + 1),
+                    format!("{}, at {:.1} s", file_line(f), f.start_time),
+                );
+            }
+        }
+    }
+    for f in &r.files {
+        info.evidence.push(format!(
+            "\"{}\": {:.2}-{:.2} s, tape speed {:+.1} %",
+            f.name,
+            f.start_time,
+            f.end_time,
+            (f.speed - 1.0) * 100.0
+        ));
+    }
+    info.warnings.extend(r.issues.iter().map(wav::issue_text));
+    info
+}
+
+fn file_line(f: &TapeFile) -> String {
+    let name = if f.name.is_empty() {
+        String::new()
+    } else {
+        format!(" \"{}\"", f.name)
+    };
+    format!("{}{name}, {} bytes", f.kind.describe(), f.payload.len())
+}
+
+/// A single tape file's details: tape facts, then what its payload is (the same details
+/// `sde info` shows for the serial image).
+fn tape_file_details(info: &mut FileInfo, f: &TapeFile) {
+    info.detail("tape speed", format!("{:+.1} %", (f.speed - 1.0) * 100.0));
+    if f.format == TapeFormat::Pc1600Ce1600p && f.header.len() >= 0x1D {
+        let d = &f.header[0x19..0x1D];
+        info.detail(
+            "saved",
+            format!("month {}, day {}, {:02}:{:02}", d[0], d[1], d[2], d[3]),
+        );
+    }
+    let Ok(img) = wav::to_image(f) else { return };
+    let inner = describe(&img);
+    info.detail(
+        "content",
+        inner
+            .summary
+            .split(',')
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+    );
+    for (k, v) in inner.details {
+        if !matches!(k.as_str(), "kind" | "file size" | "header") {
+            info.details.push((k, v));
+        }
+    }
+    info.warnings.extend(inner.warnings);
+    info.evidence.extend(inner.evidence);
 }
 
 #[cfg(test)]

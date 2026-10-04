@@ -2,7 +2,7 @@
 //! byte sequence to transmit, and sends it — or, under `--dry-run`, reports what would
 //! have been sent without opening the port.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use crate::config::Config;
 use crate::detect::{self, Content};
@@ -83,8 +83,8 @@ pub fn build_put_bytes(
 }
 
 pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
-    let raw = std::fs::read(&opts.input_file)
-        .with_context(|| format!("cannot read {}", opts.input_file))?;
+    // A cassette WAV becomes the serial image of the file on it.
+    let (raw, _) = crate::wav_cmd::read_put_input(&opts.input_file, opts.verbose)?;
     if raw.is_empty() {
         bail!("{} is empty", opts.input_file);
     }
