@@ -13,6 +13,14 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.4] - WIP
 
+### Fixed
+
+- **PC-1600 `MODE` is tokenized again.** The PC-1600 keyword table spelled token F2B3H
+  `MOOE`, so a listing line `10 MODE 0` became `10 MOD E0`, and F2B3H listed as `MOOE`.
+  `WIDTH` (F087H) is gone from the PC-1600 table: a real PC-1600 cannot type it (the
+  ROM has it only as a masked entry). Both checked against the PC-1600 ROM's own token
+  table.
+
 ## [0.3.3] - 2026-10-04
 
 ### Added
