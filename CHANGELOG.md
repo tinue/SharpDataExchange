@@ -11,6 +11,16 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-07
+
+### Fixed
+
+- **PC-1600 `MODE` is tokenized again.** The PC-1600 keyword table spelled token F2B3H
+  `MOOE`, so a listing line `10 MODE 0` became `10 MOD E0`, and F2B3H listed as `MOOE`.
+  `WIDTH` (F087H) is gone from the PC-1600 table: a real PC-1600 cannot type it (the
+  ROM has it only as a masked entry). Both checked against the PC-1600 ROM's own token
+  table.
+
 ## [0.3.3] - 2026-10-04
 
 ### Added
@@ -367,7 +377,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/tinue/SharpDataExchange/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tinue/SharpDataExchange/compare/v0.3.0...v0.3.1
