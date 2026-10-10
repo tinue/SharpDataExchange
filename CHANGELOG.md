@@ -11,6 +11,30 @@ GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-10
+
+### Changed
+
+- **`--device pc1600` uses RTS/CTS hardware flow control by default again** and sends
+  at full speed, throttled by the PC-1600's RTS. The `ERROR 142` that led to the change
+  in 0.2.2 was a cable problem (RTS/CTS not wired or not inverted), not a flow-control
+  problem. Recommended PC-1600 settings are now `RCVSTAT "COM1:",28,0` and
+  `SNDSTAT "COM1:",28,0`: `RCVSTAT` is only a filter, so `28` is right with RTS/CTS too,
+  and the `0` turns off the timeout behind `ERROR 142`. A bad cable now shows up as a
+  hang; see the README's troubleshooting section. `pc1600emul` and the PC-1500 family are
+  unchanged.
+
+### Added
+
+- `--no-flowcontrol` for `get` and `put` (`pc1600` only): no RTS/CTS, paced transfer as
+  for `pc1600emul`. The fallback for cables without working RTS/CTS lines.
+- `put` fails with a clear message when the PC-1600 never raises CTS, instead of
+  reporting success with the data still stuck in the serial buffer.
+
+### Removed
+
+- `--flowcontrol`. It is the default for `pc1600` now; on `pc1600emul` it had no effect.
+
 ## [0.3.4] - 2026-10-07
 
 ### Fixed
@@ -377,7 +401,8 @@ GitHub release notes, so keep entries user-facing.
   it lower-case); `testsuite.md` marks those bytes "don't care". Payloads match
   the Java output exactly.
 
-[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/tinue/SharpDataExchange/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/tinue/SharpDataExchange/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/tinue/SharpDataExchange/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/tinue/SharpDataExchange/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/tinue/SharpDataExchange/compare/v0.3.1...v0.3.2

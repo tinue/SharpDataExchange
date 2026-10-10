@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::pocket_device::PocketDevice;
-use crate::serial::Transport;
+use crate::serial::{cts_stall_error, Transport, STALL_TIMEOUT};
 
 const HEADER_PAUSE: Duration = Duration::from_millis(300);
 const BYTE_DELAY: Duration = Duration::from_millis(1);
@@ -14,18 +14,18 @@ const DRAIN_TIMEOUT: Duration = Duration::from_millis(2000);
 
 /// Send a fully-formed data block (`header_len` leading bytes are the header, if any;
 /// `header_len == 0` for a headerless send, e.g. `--raw`). Paced devices (PC-1500
-/// family, PC-1600 emulator, and PC-1600 by default) send the header at full speed,
-/// pause, then send the payload byte-by-byte with a 1ms delay; a real PC-1600 with
-/// `--flowcontrol` (`flow_control`) sends everything at full speed and relies on the
-/// RTS/CTS handshake to throttle it.
+/// family, PC-1600 emulator, and PC-1600 with `--no-flowcontrol`) send the header at
+/// full speed, pause, then send the payload byte-by-byte with a 1ms delay; a real PC-1600
+/// by default sends everything at full speed and relies on the RTS/CTS handshake to
+/// throttle it, failing if the handshake stalls (CTS never comes on).
 pub fn send_data<T: Transport>(
     transport: &mut T,
     device: PocketDevice,
     header_len: usize,
     data: &[u8],
-    flow_control: bool,
+    no_flow_control: bool,
 ) -> Result<()> {
-    if device.is_paced_send(flow_control) {
+    if device.is_paced_send(no_flow_control) {
         let header = &data[..header_len.min(data.len())];
         let payload = &data[header_len.min(data.len())..];
 
@@ -38,9 +38,17 @@ pub fn send_data<T: Transport>(
         transport.sleep(TAIL_PAUSE);
     } else {
         transport.write_all(data)?;
-        transport.drain(DRAIN_TIMEOUT);
+        drain_or_stall(transport)?;
     }
     Ok(())
+}
+
+/// RTS/CTS send: wait for the queue to empty, and fail if CTS held it up for good.
+fn drain_or_stall<T: Transport>(transport: &mut T) -> Result<()> {
+    match transport.drain(STALL_TIMEOUT) {
+        0 => Ok(()),
+        unsent => Err(cts_stall_error(unsent)),
+    }
 }
 
 fn write_byte_by_byte<T: Transport>(transport: &mut T, bytes: &[u8]) -> Result<()> {
@@ -60,8 +68,9 @@ pub fn send_ascii_lines<T: Transport>(
     transport: &mut T,
     device: PocketDevice,
     lines: &[String],
-    flow_control: bool,
+    no_flow_control: bool,
 ) -> Result<()> {
+    let paced = device.is_paced_send(no_flow_control);
     for line in lines {
         let mut bytes = crate::cp437::encode_lossy(line);
         bytes.push(0x0D);
@@ -69,13 +78,17 @@ pub fn send_ascii_lines<T: Transport>(
             bytes.push(0x0A);
         }
         transport.write_all(&bytes)?;
-        if device.is_paced_send(flow_control) {
+        if paced {
             transport.sleep(TAIL_PAUSE);
         }
     }
     let eof: u8 = if device.is_pc1500_family() { 0x0D } else { 0x1A };
     transport.write_all(&[eof])?;
-    transport.drain(DRAIN_TIMEOUT);
+    if paced {
+        transport.drain(DRAIN_TIMEOUT);
+    } else {
+        drain_or_stall(transport)?;
+    }
     transport.sleep(TAIL_PAUSE);
     Ok(())
 }
@@ -99,22 +112,41 @@ mod tests {
     }
 
     #[test]
-    fn real_pc1600_default_send_is_paced() {
+    fn real_pc1600_no_flowcontrol_send_is_paced() {
         let mut t = FakeSerial::new();
         let data = [1u8, 2];
-        send_data(&mut t, PocketDevice::Pc1600, 0, &data, false).unwrap();
+        send_data(&mut t, PocketDevice::Pc1600, 0, &data, true).unwrap();
         assert_eq!(t.written, data);
         assert_eq!(t.sleeps, vec![HEADER_PAUSE, BYTE_DELAY, BYTE_DELAY, TAIL_PAUSE]);
     }
 
     #[test]
-    fn real_pc1600_flowcontrol_send_is_unpaced_no_sleeps() {
+    fn real_pc1600_default_send_is_unpaced_no_sleeps() {
         let mut t = FakeSerial::new();
         let data = [1u8, 2, 3, 4];
-        send_data(&mut t, PocketDevice::Pc1600, 0, &data, true).unwrap();
+        send_data(&mut t, PocketDevice::Pc1600, 0, &data, false).unwrap();
         assert_eq!(t.written, data);
         assert!(t.sleeps.is_empty());
         assert_eq!(t.drains, 1);
+    }
+
+    #[test]
+    fn real_pc1600_send_fails_when_cts_never_comes_on() {
+        let mut t = FakeSerial::new();
+        t.pending_after_drain = 3;
+        let err = send_data(&mut t, PocketDevice::Pc1600, 0, &[1u8, 2, 3], false).unwrap_err();
+        assert!(err.to_string().starts_with("3 bytes not sent"), "{err}");
+        assert!(err.to_string().contains("--no-flowcontrol"), "{err}");
+
+        let mut t = FakeSerial::new();
+        t.pending_after_drain = 2;
+        let lines = vec!["10 END".to_string()];
+        assert!(send_ascii_lines(&mut t, PocketDevice::Pc1600, &lines, false).is_err());
+
+        // A paced send never checks: nothing throttles it, so leftovers just drain late.
+        let mut t = FakeSerial::new();
+        t.pending_after_drain = 2;
+        send_data(&mut t, PocketDevice::Pc1600, 0, &[1u8, 2], true).unwrap();
     }
 
     #[test]
@@ -149,7 +181,7 @@ mod tests {
         assert_eq!(t.sleeps, vec![TAIL_PAUSE, TAIL_PAUSE, TAIL_PAUSE]);
 
         let mut t = FakeSerial::new();
-        send_ascii_lines(&mut t, PocketDevice::Pc1600, &lines, true).unwrap();
+        send_ascii_lines(&mut t, PocketDevice::Pc1600, &lines, false).unwrap();
         assert_eq!(t.written, b"10 PRINT\r\n20 END\r\n\x1A");
         // real PC-1600 is not paced: no per-line sleeps, but the trailing tail pause
         // after the EOF marker still applies (drain/tail-pause happen unconditionally).

@@ -145,10 +145,10 @@ If you never set this, the default directory is `/tmp`, so
 `--device pc1600emul` with no `--port` and no config resolves to
 `/tmp/calcu1600-rs232c.serial` out of the box.
 
-`pc1600emul` sends the same data as `pc1600` and, like `pc1600` by default, uses
-no RTS/CTS hardware flow control and paces the transfer like the PC-1500. A
-pseudo-terminal has no handshake lines, so `--flowcontrol` (see below) is only a
-best-effort attempt there and most likely has no effect.
+`pc1600emul` sends the same data as `pc1600`, but a pseudo-terminal has no
+handshake lines: it never uses RTS/CTS and always paces the transfer like the
+PC-1500. A real `pc1600` uses RTS/CTS hardware flow control by default (see
+[Sharp PC-1600](#sharp-pc-1600)).
 
 ---
 
@@ -412,7 +412,7 @@ for tokenized BASIC, `.bin` for machine language).
 |---|---|
 | `-d`, `--device <device>` | Target device: `pc1500` (default), `pc1500a`, `pc1600`, `pc1600emul`. Configures baud rate and flow control before data arrives; decoding uses the device recorded in the received header when one is found, so an incorrect `--device` doesn't corrupt the output content — only the transport timing. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted; see [Serial Port Auto-Detection](#serial-port-auto-detection)). |
-| `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; RTS is used while receiving). Off by default, which is the safe choice: the host is fast enough that nothing is lost without it. See [Sharp PC-1600](#sharp-pc-1600). |
+| `--no-flowcontrol` | `pc1600` only: open the port without RTS/CTS hardware flow control. Receiving needs no handshake (the host is fast enough), so this rarely matters for `get`. See [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | Output format: `ascii` (default), `binary`. `ascii` on machine-language content is rejected — machine language can't be de-tokenized, so pass `--format binary` for it. |
 | `--eol <eol>` | Line ending of a de-tokenized listing or text file: `auto` (default: CRLF on Windows, LF elsewhere), `lf`, `crlf`, `cr`. |
 | `--skip-header` | Omit the serial header from the saved binary file (`--format binary` only). The resulting file can't be auto-identified or reloaded by `sde` without it — a warning is printed. |
@@ -449,7 +449,7 @@ detected from the file's bytes, never its name.
 |---|---|
 | `-d`, `--device <device>` | Target device. Optional if the file already carries a recognized header — the device is then inferred from it. A PC-1600 header always means `pc1600` (or `pc1600emul`, if given); a PC-1500-family `--device` is overridden with a warning. A CE-158 header with a PC-1600-family `--device` is an error. Without a header and without `--device`, defaults to `pc1500`. |
 | `-p`, `--port <port>` | Serial port name (auto-detected if omitted). |
-| `--flowcontrol` | Enable RTS/CTS hardware flow control (`pc1600` / `pc1600emul` only; CTS is used while sending). Off by default: a `pc1600` transfer is then paced byte-by-byte like `pc1600emul`. With it, a real `pc1600` is sent unpaced and the handshake throttles the transfer. Only try this if `put` fails with `ERROR 142`, and set `RCVSTAT "COM1:",24` on the PC-1600 to match; see [Sharp PC-1600](#sharp-pc-1600). |
+| `--no-flowcontrol` | `pc1600` only: disable RTS/CTS hardware flow control and pace the transfer byte-by-byte instead, like `pc1600emul`. By default a `pc1600` transfer is sent unpaced and the PC-1600's RTS throttles it. Use this when the cable has no working RTS/CTS lines (the transfer hangs); see [Sharp PC-1600](#sharp-pc-1600). |
 | `-f`, `--format <format>` | For headerless ASCII BASIC input: `binary` (default when omitted) tokenizes it before sending; `ascii` sends it line-by-line, untokenized (slower; mirrors the device's `CLOADa`/ASCII load). On input detected as [text](#text), `binary` forces it to be tokenized as a BASIC listing — the override when a listing is not recognized as BASIC. Has no effect on machine language (always sent as raw binary) or on input that already has a header (always sent as-is). |
 | `--start-address <hex>` | Load address for a **headerless** machine-language input (e.g. `38C5` or `0x38C5`). Required to send headerless machine code — see below. |
 | `--run-address <hex>` | Auto-run address for a headerless machine-language input; requires `--start-address`. Defaults to `0xFFFF` (no auto-run) if `--start-address` is given without it. |
@@ -513,7 +513,7 @@ otherwise the host extension). A name after the side renames it (one input file 
 `sde put hello.bas disk.floppy.yaml:A:HI.BAS`. An existing file is only replaced with
 `--force`. With a wildcard, `get` writes into a directory (default: the current one);
 `--raw` writes every file exactly as stored. `--dry-run` never changes the image.
-`--port`, `--flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
+`--port`, `--no-flowcontrol` and `--device pc1500`/`pc1500a` don't apply to images.
 
 **A folder as the disk.** With an existing directory as the last argument, `put`
 stores the files there exactly as on a floppy side: same conversions, 8.3 names, BASIC
@@ -766,23 +766,27 @@ for the full syntax.
 SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
-RCVSTAT "COM1:",28
+RCVSTAT "COM1:",28,0
+SNDSTAT "COM1:",28,0
 ```
 
-For sending **from** the PC-1600 to the PC, additionally enter:
+These configure the port at 9600 baud, 8 data bits, no parity, 1 stop bit, and a
+4096-byte buffer. `OUTSTAT "COM1:"` lets the PC-1600 drive its RTS line itself:
+it drops RTS while its buffer is full. `sde put` uses RTS/CTS hardware flow
+control by default and waits for that signal, so it sends at full speed without
+overrunning the PC-1600.
 
-```
-SNDSTAT "COM1:",28
-```
+`28` tells the PC-1600 not to check any of its input lines (CTS, CD, DSR):
+`RCVSTAT` accepts every byte, `SNDSTAT` sends without waiting. The host is fast
+enough to need no handshake when it receives. The trailing `0` means "no
+timeout". Always give both values: an omitted protocol or timeout is not "none"
+but a ROM default (a timeout of about 30 seconds, after which `LOAD` stops with
+`ERROR 142`).
 
-These configure the port at 9600 baud, 8 data bits, no parity, 1 stop bit, with
-RTS/CTS flow control **disabled**, and a 4096-byte buffer. This is the default:
-`sde` paces the transfer itself.
-
-Hardware handshaking is optional. To use it, pass `--flowcontrol` to `sde get`/
-`sde put` and use `24` instead of `28` in `RCVSTAT` (for `put`) or `SNDSTAT`
-(for `get`). The settings must match: a PC-1600 set to `24` while `sde` runs
-without `--flowcontrol` can end in `ERROR 142`.
+Because there is no timeout, a broken handshake does not produce an error. The
+transfer **hangs** instead. If that happens, check the RTS/CTS wiring of the
+cable (see [Hardware notes](docs/HardwareNotes.md)), or pass `--no-flowcontrol`
+to `sde put`, which paces the transfer instead and needs no handshake lines.
 
 #### Receive a program from the PC (`put`)
 
@@ -808,8 +812,8 @@ SAVE "COM1:"
 | `SETCOM "COM1:",<baud>,<bits>,<parity>,<stop>,<xon>,<shift>` | Configure baud rate and protocol. |
 | `INIT "COM1:",<buffer-size>` | Set receive buffer size (default after power-on is 40 bytes). |
 | `OUTSTAT "COM1:"` | Enable dynamic RTS/DTR flow control. |
-| `RCVSTAT "COM1:",<protocol>[,<timeout>]` | Receive handshake/timeout; `28` disables flow control (default for `sde`), `24` enables RTS/CTS (needs `--flowcontrol`). |
-| `SNDSTAT "COM1:",<protocol>[,<timeout>]` | Send handshake/timeout; `28` disables flow control (default for `sde`), `24` enables RTS/CTS (needs `--flowcontrol`). |
+| `RCVSTAT "COM1:",<protocol>,<timeout>` | Input lines that must be on to accept a byte (bit 2 = CTS, 3 = CD, 4 = DSR; a `0` bit means "required"); others are discarded. `28` accepts everything (use this with `sde`). Timeout in 0.5 s units, `0` = none. |
+| `SNDSTAT "COM1:",<protocol>,<timeout>` | Input lines that must be on before each byte is sent (same bits). `28` sends without waiting (use this with `sde`), `24` waits for CTS. Timeout in 0.5 s units, `0` = none. |
 | `SETDEV "COM1:"[,KI][,PO]` | Redirect `INPUT`/`LPRINT`/`LLIST` to the serial port. |
 | `PCONSOLE "COM1:",<line-length>,<eol>` | Line length and EOL (`0`=CR, `1`=LF, `2`=CR/LF) for serial output. |
 
@@ -1092,16 +1096,26 @@ Re-enter the full setup sequence on the PC-1600:
 SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
-RCVSTAT "COM1:",28
+RCVSTAT "COM1:",28,0
+SNDSTAT "COM1:",28,0
 ```
 
+**`put` hangs on the PC-1600, or `sde` reports "bytes not sent: the PC-1600 never raised CTS"**
+`sde put` waits for the PC-1600's RTS signal, which reaches the PC as CTS. If
+that signal never arrives, nothing is sent: the PC-1600 waits in `LOAD`
+forever, and `sde` gives up after a few seconds without progress. Check that
+the PC-1600 was set up with `OUTSTAT "COM1:"` and is waiting in `LOAD "COM1:"`,
+and that RTS and CTS are wired crosswise and inverted (see [Hardware
+notes](docs/HardwareNotes.md)). If your cable has no RTS/CTS lines, use
+`sde put --no-flowcontrol`, which paces the transfer instead.
+
 **`ERROR 142` on the PC-1600**
-This is an RTS/CTS handshake error, typically on `put`. By default `sde` uses no
-flow control, which means `RCVSTAT "COM1:",28` (and `SNDSTAT "COM1:",28`) on the
-PC-1600. If you still get `ERROR 142` on `put`, you can *try* enabling flow
-control: pass `--flowcontrol` to `sde put` and switch `RCVSTAT` on the PC-1600 to
-`RCVSTAT "COM1:",24`. This depends on your USB adapter and wiring and may not
-work.
+On `LOAD` this is the `RCVSTAT` timeout: nothing arrived in time. It appears
+when the timeout was left out (`RCVSTAT "COM1:",28` waits about 30 seconds),
+typically because the RTS/CTS wiring keeps `sde` from sending (see above). Use
+`RCVSTAT "COM1:",28,0` (no timeout), and fix the cable or use `--no-flowcontrol`.
+`ERROR 142` also reports parity, framing or overrun errors, or a full receive
+buffer.
 
 ---
 

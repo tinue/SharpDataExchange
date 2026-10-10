@@ -25,8 +25,9 @@ pub trait Transport {
     /// watchdog deadline between polls.
     fn read(&mut self, poll_timeout: Duration) -> Result<Vec<u8>>;
 
-    /// Block (up to `timeout`) until the outgoing buffer is empty.
-    fn drain(&mut self, timeout: Duration);
+    /// Block until the outgoing buffer is empty, giving up once it has made no progress
+    /// for `timeout`. Returns the number of bytes still queued (0 = all sent).
+    fn drain(&mut self, timeout: Duration) -> usize;
 
     /// Pause. Real transports actually sleep; test doubles just record the request.
     fn sleep(&mut self, d: Duration) {
@@ -43,13 +44,27 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
         (**self).read(poll_timeout)
     }
 
-    fn drain(&mut self, timeout: Duration) {
+    fn drain(&mut self, timeout: Duration) -> usize {
         (**self).drain(timeout)
     }
 
     fn sleep(&mut self, d: Duration) {
         (**self).sleep(d)
     }
+}
+
+/// How long an RTS/CTS send may make no progress before `put` gives up: the PC-1600
+/// holds CTS off only briefly while `LOAD` digests a record, so a longer stall means
+/// it never raised CTS at all.
+pub const STALL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The error for an RTS/CTS send that stalled with `unsent` bytes left.
+pub fn cts_stall_error(unsent: usize) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{unsent} bytes not sent: the PC-1600 never raised CTS. Check that it waits in \
+         LOAD \"COM1:\" with OUTSTAT \"COM1:\" set, and the RTS/CTS wires (crossed and \
+         inverted), or retry with --no-flowcontrol"
+    )
 }
 
 /// Real serial port, backed by the `serialport` crate.
@@ -60,12 +75,12 @@ pub struct RealSerial {
 impl RealSerial {
     /// Open `port_name` configured for `device` (baud rate per [`PocketDevice::baud_rate`],
     /// flow control as below): 8 data bits, no parity, 1 stop bit, hardware
-    /// flow control iff `device.uses_hardware_flow_control(flow_control)`. On Unix, no exclusive
+    /// flow control iff `device.uses_hardware_flow_control(no_flow_control)`. On Unix, no exclusive
     /// lock (so a peer that already holds the port open doesn't make the open fail);
     /// Windows has no non-exclusive open mode for `serialport`, so this is skipped
     /// there and every open is exclusive.
-    pub fn open(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<RealSerial> {
-        let flow = if device.uses_hardware_flow_control(flow_control) {
+    pub fn open(port_name: &str, device: PocketDevice, no_flow_control: bool) -> Result<RealSerial> {
+        let flow = if device.uses_hardware_flow_control(no_flow_control) {
             serialport::FlowControl::Hardware
         } else {
             serialport::FlowControl::None
@@ -129,9 +144,28 @@ impl RealSerial {
 }
 
 impl Transport for RealSerial {
-    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
-        use std::io::Write;
-        self.port.write_all(bytes).context("serial write failed")
+    /// Under RTS/CTS a write times out whenever the OS buffer is full while CTS is off;
+    /// keep retrying until [`STALL_TIMEOUT`] passes without a single byte accepted.
+    fn write_all(&mut self, mut bytes: &[u8]) -> Result<()> {
+        use std::io::{ErrorKind, Write};
+        let mut last_progress = std::time::Instant::now();
+        while !bytes.is_empty() {
+            match self.port.write(bytes) {
+                Ok(0) => bail!("serial write failed: port accepted no data"),
+                Ok(n) => {
+                    bytes = &bytes[n..];
+                    last_progress = std::time::Instant::now();
+                }
+                Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::Interrupted) => {
+                    if last_progress.elapsed() >= STALL_TIMEOUT {
+                        let queued = self.port.bytes_to_write().unwrap_or(0) as usize;
+                        return Err(cts_stall_error(bytes.len() + queued));
+                    }
+                }
+                Err(e) => return Err(e).context("serial write failed"),
+            }
+        }
+        Ok(())
     }
 
     fn read(&mut self, poll_timeout: Duration) -> Result<Vec<u8>> {
@@ -145,14 +179,24 @@ impl Transport for RealSerial {
         }
     }
 
-    fn drain(&mut self, timeout: Duration) {
-        let deadline = std::time::Instant::now() + timeout;
-        while std::time::Instant::now() < deadline {
-            match self.port.bytes_to_write() {
-                Ok(0) => return,
-                Ok(_) => std::thread::sleep(Duration::from_millis(5)),
-                Err(_) => return,
+    fn drain(&mut self, timeout: Duration) -> usize {
+        let mut last = usize::MAX;
+        let mut deadline = std::time::Instant::now() + timeout;
+        loop {
+            let queued = match self.port.bytes_to_write() {
+                Ok(n) => n as usize,
+                Err(_) => return 0,
+            };
+            if queued == 0 {
+                return 0;
             }
+            if queued < last {
+                last = queued;
+                deadline = std::time::Instant::now() + timeout;
+            } else if std::time::Instant::now() >= deadline {
+                return queued;
+            }
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 }
@@ -181,7 +225,7 @@ pub struct PtySerial {
 
 #[cfg(unix)]
 impl PtySerial {
-    pub fn open(path: &str, flow_control: bool) -> Result<PtySerial> {
+    pub fn open(path: &str) -> Result<PtySerial> {
         use std::os::unix::io::AsRawFd;
 
         let file = std::fs::OpenOptions::new()
@@ -210,14 +254,6 @@ impl PtySerial {
         unsafe { libc::cfmakeraw(&mut termios) };
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
             bail!("tcsetattr failed on pty {path}: {}", std::io::Error::last_os_error());
-        }
-
-        // `--flowcontrol`: best-effort attempt to enable RTS/CTS handshaking. A pty
-        // has no modem-control lines, so the kernel may ignore or reject this; either
-        // way it is not an error (the paced send path still applies).
-        if flow_control {
-            termios.c_cflag |= libc::CRTSCTS;
-            let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
         }
 
         Ok(PtySerial { file })
@@ -249,23 +285,24 @@ impl Transport for PtySerial {
         Ok(buf[..n].to_vec())
     }
 
-    fn drain(&mut self, _timeout: Duration) {
+    fn drain(&mut self, _timeout: Duration) -> usize {
         // No introspectable output queue for a plain fd (unlike `serialport`'s
         // `bytes_to_write`); a short pause is enough since local pty writes are
         // delivered to the line discipline essentially immediately.
         std::thread::sleep(Duration::from_millis(20));
+        0
     }
 }
 
 /// Open the transport for `device`: [`PtySerial`] for `pc1600emul` (see its doc
 /// comment for why), [`RealSerial`] for everything else. This is what
 /// `get_cmd`/`put_cmd` actually open.
-pub fn open_transport(port_name: &str, device: PocketDevice, flow_control: bool) -> Result<Box<dyn Transport>> {
+pub fn open_transport(port_name: &str, device: PocketDevice, no_flow_control: bool) -> Result<Box<dyn Transport>> {
     #[cfg(unix)]
     if device.is_emulator() {
-        return Ok(Box::new(PtySerial::open(port_name, flow_control)?));
+        return Ok(Box::new(PtySerial::open(port_name)?));
     }
-    Ok(Box::new(RealSerial::open(port_name, device, flow_control)?))
+    Ok(Box::new(RealSerial::open(port_name, device, no_flow_control)?))
 }
 
 /// Resolve the port to use: explicit `--port` wins; for `pc1600emul`, the port is
@@ -305,6 +342,8 @@ pub struct FakeSerial {
     pub write_calls: Vec<usize>,
     pub sleeps: Vec<Duration>,
     pub drains: usize,
+    /// What every `drain()` reports as still queued (simulates a stalled RTS/CTS send).
+    pub pending_after_drain: usize,
     pub to_read: std::collections::VecDeque<Vec<u8>>,
 }
 
@@ -332,8 +371,9 @@ impl Transport for FakeSerial {
         Ok(self.to_read.pop_front().unwrap_or_default())
     }
 
-    fn drain(&mut self, _timeout: Duration) {
+    fn drain(&mut self, _timeout: Duration) -> usize {
         self.drains += 1;
+        self.pending_after_drain
     }
 
     fn sleep(&mut self, d: Duration) {

@@ -77,6 +77,28 @@ stay ASCII digits. sde encodes every target as `1F hi lo 00`, so re-tokenizing t
 program comes out 2 bytes longer than the ROM's (`BIO.BAS` on the same disk re-tokenizes
 byte-identically). Check the PC-1500 behaviour too, then match the ROM.
 
+## 6a. PC-1600 serial defaults (from the driver analysis)
+
+Basis: [docs/SerialDriverAnalysis.md](docs/SerialDriverAnalysis.md) (2026-10-10). RTS/CTS
+is the only flow control both the macOS (AppleUSBFTDI) and Linux (ftdi_sio) drivers
+implement correctly; XON/XOFF is broken on macOS for binary data.
+
+- [ ] Hardware test: `put`/`get` with the new default (RTS/CTS) and
+      `RCVSTAT`/`SNDSTAT "COM1:",28,0` on macOS and Linux (file larger than the `INIT`
+      buffer, binary with 0x11/0x13); `put --no-flowcontrol`; CTS wire disconnected →
+      PC-1600 hangs in `LOAD`, sde fails after ~5 s with the cable hint.
+  - [x] 2026-10-10, macOS: `put --device pc1600` (RTS/CTS, unpaced) of a 54603-byte
+        file with `INIT "COM1:",1024` and `RCVSTAT "COM1:",28,0` loaded perfectly.
+        (A first try without `--device pc1600` sent a headerless file as `pc1500`,
+        19200 baud → immediate `ERROR 142`; user error, not flow control.)
+- [x] RTS/CTS is the default for `--device pc1600` again (`--no-flowcontrol` opts out
+      and paces); `--flowcontrol` removed. `pc1600emul` / PC-1500 unchanged.
+- [x] Clear error when CTS never asserts (stall-tolerant write + progress-based drain,
+      `serial::STALL_TIMEOUT`). Optional CTS pre-check via `read_clear_to_send` not done.
+- [x] README: recommended setup `RCVSTAT`/`SNDSTAT "COM1:",28,0` (RCVSTAT is a filter,
+      not flow control; `,0` = no timeout, so no ERROR 142), hang troubleshooting;
+      HardwareNotes advises against FTDI's macOS VCP driver.
+
 ## 7. Code-quality follow-ups (skipped by the 2026-10-04 `/simplify` pass)
 
 The first full-codebase simplify (`30f34d6`, tag `simplified`) left these alone. Each one
