@@ -13,6 +13,13 @@ GitHub release notes, so keep entries user-facing.
 
 ## [0.3.6] - WIP
 
+### Changed
+
+- Recommended PC-1600 setting for sending is now `SNDSTAT "COM1:",24,0` (was `28,0`):
+  the PC-1600 then waits for the PC's RTS before each byte, so RTS/CTS works in both
+  directions. With `--no-flowcontrol` (cables without RTS/CTS) keep `SNDSTAT "COM1:",28,0`.
+  `RCVSTAT "COM1:",28,0` is unchanged.
+
 ## [0.3.5] - 2026-10-10
 
 ### Changed

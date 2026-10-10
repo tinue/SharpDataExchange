@@ -182,9 +182,10 @@ PC-1600 side per README: `SETCOM "COM1:",9600,8,N,1,N,N` and `RCVSTAT`/`SNDSTAT`
    `--no-flowcontrol`). `CRTSCTS` is the only flow-control path that is implemented
    correctly by both the Apple and the Linux driver, it is handled inside the FT232R
    (no host latency), and it lets `put` drop the per-byte pacing
-   (`is_paced_send` → false). Matching PC-1600 setting: `RCVSTAT`/`SNDSTAT "COM1:",28,0`
+   (`is_paced_send` → false). Matching PC-1600 setting: `RCVSTAT "COM1:",28,0`, `SNDSTAT "COM1:",24,0`
    (correction: `RCVSTAT` is only a filter, so host → PC-1600 flow control is the
-   PC-1600's RTS under `OUTSTAT "COM1:"`, and `28` is right; `,0` disables the timeout
+   PC-1600's RTS under `OUTSTAT "COM1:"`, and `28` is right; `SNDSTAT 24` makes the
+   PC-1600 obey the PC's RTS when it sends; `,0` disables the timeout
    that surfaces as `ERROR 142` on `LOAD`). **Implemented in 0.3.5** (`--no-flowcontrol`).
    Keep `pc1600emul` and the PC-1500 family unchanged (no handshake lines).
 2. **Never offer XON/XOFF** for binary transfers (`SETCOM … ,N,` stays). On macOS it
@@ -210,7 +211,7 @@ PC-1600 side per README: `SETCOM "COM1:",9600,8,N,1,N,N` and `RCVSTAT`/`SNDSTAT`
 
 Need the PC-1600 or a TX↔RX / RTS↔CTS loopback on the cable:
 
-- Confirm `put`/`get` with the RTS/CTS default + `RCVSTAT`/`SNDSTAT "COM1:",28,0` on macOS and Linux,
+- Confirm `put`/`get` with the RTS/CTS default + `RCVSTAT "COM1:",28,0` / `SNDSTAT "COM1:",24,0` on macOS and Linux,
   including a file larger than the PC-1600's `INIT` buffer, and a binary file containing
   0x11/0x13.
 - Reproduce the README's `ERROR 142` case (PC-1600 at `24`, sde without flow control) and

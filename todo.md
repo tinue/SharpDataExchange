@@ -84,7 +84,7 @@ is the only flow control both the macOS (AppleUSBFTDI) and Linux (ftdi_sio) driv
 implement correctly; XON/XOFF is broken on macOS for binary data.
 
 - [ ] Hardware test: `put`/`get` with the new default (RTS/CTS) and
-      `RCVSTAT`/`SNDSTAT "COM1:",28,0` on macOS and Linux (file larger than the `INIT`
+      `RCVSTAT "COM1:",28,0` / `SNDSTAT "COM1:",24,0` on macOS and Linux (file larger than the `INIT`
       buffer, binary with 0x11/0x13); `put --no-flowcontrol`; CTS wire disconnected →
       PC-1600 hangs in `LOAD`, sde fails after ~5 s with the cable hint.
   - [x] 2026-10-10, macOS: `put --device pc1600` (RTS/CTS, unpaced) of a 54603-byte

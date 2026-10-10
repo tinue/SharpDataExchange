@@ -767,7 +767,7 @@ SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
 RCVSTAT "COM1:",28,0
-SNDSTAT "COM1:",28,0
+SNDSTAT "COM1:",24,0
 ```
 
 These configure the port at 9600 baud, 8 data bits, no parity, 1 stop bit, and a
@@ -776,17 +776,21 @@ it drops RTS while its buffer is full. `sde put` uses RTS/CTS hardware flow
 control by default and waits for that signal, so it sends at full speed without
 overrunning the PC-1600.
 
-`28` tells the PC-1600 not to check any of its input lines (CTS, CD, DSR):
-`RCVSTAT` accepts every byte, `SNDSTAT` sends without waiting. The host is fast
-enough to need no handshake when it receives. The trailing `0` means "no
-timeout". Always give both values: an omitted protocol or timeout is not "none"
+RTS/CTS works in both directions. `SNDSTAT "COM1:",24,0` makes the PC-1600
+check its CTS line, which carries the PC's RTS, before it sends each byte, so
+`sde get` can hold it back. `RCVSTAT "COM1:",28,0` makes it accept every byte:
+`RCVSTAT` only filters incoming bytes by the state of the input lines, it is not
+flow control, so `28` (check nothing) is right with RTS/CTS too. The trailing
+`0` means "no timeout". Always give both values: an omitted protocol or timeout is not "none"
 but a ROM default (a timeout of about 30 seconds, after which `LOAD` stops with
 `ERROR 142`).
 
 Because there is no timeout, a broken handshake does not produce an error. The
 transfer **hangs** instead. If that happens, check the RTS/CTS wiring of the
 cable (see [Hardware notes](docs/HardwareNotes.md)), or pass `--no-flowcontrol`
-to `sde put`, which paces the transfer instead and needs no handshake lines.
+to `sde`, which paces the transfer instead and needs no handshake lines. With
+`--no-flowcontrol` also set `SNDSTAT "COM1:",28,0`: with `24` and no CTS line,
+the PC-1600 waits forever when it sends.
 
 #### Receive a program from the PC (`put`)
 
@@ -813,7 +817,7 @@ SAVE "COM1:"
 | `INIT "COM1:",<buffer-size>` | Set receive buffer size (default after power-on is 40 bytes). |
 | `OUTSTAT "COM1:"` | Enable dynamic RTS/DTR flow control. |
 | `RCVSTAT "COM1:",<protocol>,<timeout>` | Input lines that must be on to accept a byte (bit 2 = CTS, 3 = CD, 4 = DSR; a `0` bit means "required"); others are discarded. `28` accepts everything (use this with `sde`). Timeout in 0.5 s units, `0` = none. |
-| `SNDSTAT "COM1:",<protocol>,<timeout>` | Input lines that must be on before each byte is sent (same bits). `28` sends without waiting (use this with `sde`), `24` waits for CTS. Timeout in 0.5 s units, `0` = none. |
+| `SNDSTAT "COM1:",<protocol>,<timeout>` | Input lines that must be on before each byte is sent (same bits). `24` waits for CTS (use this with `sde`'s RTS/CTS default), `28` sends without waiting (use this with `--no-flowcontrol`). Timeout in 0.5 s units, `0` = none. |
 | `SETDEV "COM1:"[,KI][,PO]` | Redirect `INPUT`/`LPRINT`/`LLIST` to the serial port. |
 | `PCONSOLE "COM1:",<line-length>,<eol>` | Line length and EOL (`0`=CR, `1`=LF, `2`=CR/LF) for serial output. |
 
@@ -1097,7 +1101,7 @@ SETCOM "COM1:",9600,8,N,1,N,N
 INIT "COM1:",4096
 OUTSTAT "COM1:"
 RCVSTAT "COM1:",28,0
-SNDSTAT "COM1:",28,0
+SNDSTAT "COM1:",24,0
 ```
 
 **`put` hangs on the PC-1600, or `sde` reports "bytes not sent: the PC-1600 never raised CTS"**
@@ -1108,6 +1112,13 @@ the PC-1600 was set up with `OUTSTAT "COM1:"` and is waiting in `LOAD "COM1:"`,
 and that RTS and CTS are wired crosswise and inverted (see [Hardware
 notes](docs/HardwareNotes.md)). If your cable has no RTS/CTS lines, use
 `sde put --no-flowcontrol`, which paces the transfer instead.
+
+**`SAVE "COM1:"` hangs on the PC-1600 while `sde get` is waiting**
+With `SNDSTAT "COM1:",24,0` the PC-1600 sends only while its CTS line is on,
+and that line carries the PC's RTS. If it never comes on, the PC-1600 waits
+forever. Check that RTS and CTS are wired crosswise and inverted. If your cable
+has no RTS/CTS lines, press `BREAK`, set `SNDSTAT "COM1:",28,0` and use
+`sde get --no-flowcontrol`.
 
 **`ERROR 142` on the PC-1600**
 On `LOAD` this is the `RCVSTAT` timeout: nothing arrived in time. It appears
