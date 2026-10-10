@@ -764,14 +764,14 @@ for the full syntax.
 
 ```
 SETCOM "COM1:",9600,8,N,1,N,N
-INIT "COM1:",4096
+INIT "COM1:",1024
 OUTSTAT "COM1:"
 RCVSTAT "COM1:",28,0
 SNDSTAT "COM1:",24,0
 ```
 
 These configure the port at 9600 baud, 8 data bits, no parity, 1 stop bit, and a
-4096-byte buffer. `OUTSTAT "COM1:"` lets the PC-1600 drive its RTS line itself:
+1024-byte buffer. `OUTSTAT "COM1:"` lets the PC-1600 drive its RTS line itself:
 it drops RTS while its buffer is full. `sde put` uses RTS/CTS hardware flow
 control by default and waits for that signal, so it sends at full speed without
 overrunning the PC-1600.
@@ -1098,7 +1098,7 @@ check the USB cable and CE-158X connection.
 Re-enter the full setup sequence on the PC-1600:
 ```
 SETCOM "COM1:",9600,8,N,1,N,N
-INIT "COM1:",4096
+INIT "COM1:",1024
 OUTSTAT "COM1:"
 RCVSTAT "COM1:",28,0
 SNDSTAT "COM1:",24,0
