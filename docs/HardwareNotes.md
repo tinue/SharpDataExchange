@@ -31,6 +31,18 @@ The wiring is as follows (pin 1 is the rightmost pin of the PC-1600's 15-pin ser
 
 Note: Do not connect the red cable (5V) of the adapter. I simply cut the cable off.
 
+RTS and CTS (pins 4 and 5) are required: `sde put --device pc1600` uses RTS/CTS
+hardware flow control by default. If they are missing, swapped or not inverted, the
+transfer hangs (the PC-1600 waits in `LOAD`, `sde` reports that the PC-1600 never
+raised CTS). A cable without these lines still works with `sde put --no-flowcontrol`,
+which paces the transfer instead.
+
+On macOS, use the built-in driver; don't install FTDI's own VCP driver, which handles
+flow control worse for this use.
+
+For how the macOS and Linux drivers handle this adapter's flow control (RTS/CTS,
+XON/XOFF), errors and limits, see [SerialDriverAnalysis.md](SerialDriverAnalysis.md).
+
 ![Pins and Adapter Plate](pictures/Pin_Adapter.jpg)
 
 Note that I had to trim the edges of the board, because it would not have fit otherwise:

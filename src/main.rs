@@ -122,11 +122,11 @@ enum Command {
         /// would have been written and where.
         #[arg(long)]
         dry_run: bool,
-        /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on
-        /// `get`, CTS on `put`. Off by default; with it, a real PC-1600 is sent to
-        /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
+        /// Disable RTS/CTS hardware flow control (--device pc1600 only) and pace the
+        /// transfer instead, as for pc1600emul. Use this if transfers hang because the
+        /// cable has no working RTS/CTS.
         #[arg(long)]
-        flowcontrol: bool,
+        no_flowcontrol: bool,
         #[command(flatten)]
         verbosity: VerbosityArgs,
     },
@@ -178,11 +178,11 @@ enum Command {
         /// the disk image or folder.
         #[arg(long)]
         dry_run: bool,
-        /// Enable RTS/CTS hardware flow control (PC-1600 / pc1600emul only): RTS on
-        /// `get`, CTS on `put`. Off by default; with it, a real PC-1600 is sent to
-        /// unpaced. Requires SNDSTAT/RCVSTAT 24 on the PC-1600 (default is 28).
+        /// Disable RTS/CTS hardware flow control (--device pc1600 only) and pace the
+        /// transfer instead, as for pc1600emul. Use this if transfers hang because the
+        /// cable has no working RTS/CTS.
         #[arg(long)]
-        flowcontrol: bool,
+        no_flowcontrol: bool,
         #[command(flatten)]
         verbosity: VerbosityArgs,
     },
@@ -451,7 +451,7 @@ fn run() -> Result<()> {
             Ok(())
         }
 
-        Command::Get { args, device, port, format, tape, skip_header, eol, raw, dry_run, flowcontrol, verbosity } => {
+        Command::Get { args, device, port, format, tape, skip_header, eol, raw, dry_run, no_flowcontrol, verbosity } => {
             let config = Config::load()?;
             let verbosity = verbosity.resolve(&config);
             let tape = tape.for_format(format)?;
@@ -460,7 +460,7 @@ fn run() -> Result<()> {
             }
             if let Some(first) = args.first() {
                 if let Some(addr) = disk_cmd::parse_image_addr(first)? {
-                    check_disk_options(device, port.as_deref(), flowcontrol)?;
+                    check_disk_options(device, port.as_deref(), no_flowcontrol)?;
                     let opts = DiskGetOptions {
                         format: host_format(format),
                         tape,
@@ -476,8 +476,8 @@ fn run() -> Result<()> {
                 // A cassette WAV as the source (by content). With -f wav the first
                 // argument is the output file, never a source.
                 if let Some(src) = wav_cmd::wav_source(first).filter(|_| tape.is_none()) {
-                    if device.is_some() || port.is_some() || flowcontrol || raw {
-                        bail!("--device, --port, --flowcontrol and --raw do not apply to a cassette WAV source");
+                    if device.is_some() || port.is_some() || no_flowcontrol || raw {
+                        bail!("--device, --port, --no-flowcontrol and --raw do not apply to a cassette WAV source");
                     }
                     let o = WavGetOptions {
                         format: host_format(format),
@@ -507,7 +507,7 @@ fn run() -> Result<()> {
                 raw,
                 dry_run,
                 verbose: verbosity,
-                flow_control: flowcontrol,
+                no_flow_control: no_flowcontrol,
                 output_file: args.into_iter().next(),
             };
             let msg = get_cmd::run_get(&opts, &config)?;
@@ -528,7 +528,7 @@ fn run() -> Result<()> {
             raw,
             force,
             dry_run,
-            flowcontrol,
+            no_flowcontrol,
             verbosity,
         } => {
             let config = Config::load()?;
@@ -540,8 +540,8 @@ fn run() -> Result<()> {
                         "put -f wav plays one file through the audio output (no disk image target)"
                     );
                 }
-                if port.is_some() || flowcontrol || raw || force {
-                    bail!("--port, --flowcontrol, --raw and --force do not apply with -f wav");
+                if port.is_some() || no_flowcontrol || raw || force {
+                    bail!("--port, --no-flowcontrol, --raw and --force do not apply with -f wav");
                 }
                 let o = wav_cmd::PlayOptions {
                     device: device.map(Into::into),
@@ -563,7 +563,7 @@ fn run() -> Result<()> {
                 if inputs.len() < 2 {
                     bail!("put needs the file(s) to store before the disk image target");
                 }
-                check_disk_options(device, port.as_deref(), flowcontrol)?;
+                check_disk_options(device, port.as_deref(), no_flowcontrol)?;
                 let opts = DiskPutOptions {
                     format: host_format(format),
                     start_address,
@@ -578,7 +578,7 @@ fn run() -> Result<()> {
                 return Ok(());
             }
             if inputs.len() > 1 && std::path::Path::new(last).is_dir() {
-                check_disk_options(device, port.as_deref(), flowcontrol)?;
+                check_disk_options(device, port.as_deref(), no_flowcontrol)?;
                 let opts = DiskPutOptions {
                     format: host_format(format),
                     start_address,
@@ -610,7 +610,7 @@ fn run() -> Result<()> {
                 raw,
                 dry_run,
                 verbose: verbosity,
-                flow_control: flowcontrol,
+                no_flow_control: no_flowcontrol,
                 input_file: inputs.into_iter().next().expect("one input"),
             };
             let msg = put_cmd::run_put(&opts, &config)?;
@@ -649,12 +649,12 @@ fn run() -> Result<()> {
 }
 
 /// Disk images are PC-1600 media and involve no serial port.
-fn check_disk_options(device: Option<DeviceArg>, port: Option<&str>, flowcontrol: bool) -> Result<()> {
+fn check_disk_options(device: Option<DeviceArg>, port: Option<&str>, no_flowcontrol: bool) -> Result<()> {
     if matches!(device, Some(DeviceArg::Pc1500 | DeviceArg::Pc1500a)) {
         bail!("disk images are PC-1600 media; --device pc1500/pc1500a does not apply");
     }
-    if port.is_some() || flowcontrol {
-        bail!("--port and --flowcontrol do not apply to disk images");
+    if port.is_some() || no_flowcontrol {
+        bail!("--port and --no-flowcontrol do not apply to disk images");
     }
     Ok(())
 }

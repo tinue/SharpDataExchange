@@ -23,8 +23,8 @@ pub struct PutOptions {
     pub raw: bool,
     pub dry_run: bool,
     pub verbose: bool,
-    /// `--flowcontrol`: enable RTS/CTS handshaking (PC-1600 family only).
-    pub flow_control: bool,
+    /// `--no-flowcontrol`: no RTS/CTS handshaking on a real PC-1600; pace instead.
+    pub no_flow_control: bool,
     pub input_file: String,
 }
 
@@ -105,7 +105,7 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
     if let Some(explicit) = opts.device.filter(|d| *d != device) {
         eprintln!("WARNING: file has a PC-1600 header; using --device {device} instead of {explicit}");
     }
-    device.check_flow_control(opts.flow_control)?;
+    device.check_no_flow_control(opts.no_flow_control)?;
     crate::verbosity::narrate(opts.verbose, format!("Using device {device}"));
 
     // An explicit `--format ascii` on headerless ASCII BASIC input
@@ -148,8 +148,8 @@ pub fn run_put(opts: &PutOptions, config: &Config) -> Result<String> {
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
-    sender::send_data(&mut transport, device, header_len, &bytes, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.no_flow_control)?;
+    sender::send_data(&mut transport, device, header_len, &bytes, opts.no_flow_control)?;
 
     Ok(format!("Sent {} bytes to {port_name} ({device})", bytes.len()))
 }
@@ -177,8 +177,8 @@ fn run_put_ascii_lines(
 
     let port_name = serial::resolve_port(device, opts.port.as_deref(), config)?;
     crate::verbosity::narrate(opts.verbose, format!("Using port {port_name}"));
-    let mut transport = serial::open_transport(&port_name, device, opts.flow_control)?;
-    sender::send_ascii_lines(&mut transport, device, &lines, opts.flow_control)?;
+    let mut transport = serial::open_transport(&port_name, device, opts.no_flow_control)?;
+    sender::send_ascii_lines(&mut transport, device, &lines, opts.no_flow_control)?;
 
     Ok(format!("Sent {} ASCII lines to {port_name} ({device})", lines.len()))
 }
@@ -198,7 +198,7 @@ mod tests {
             run_address: None,
             raw: false,
             dry_run: false,
-            flow_control: false,
+            no_flow_control: false,
             verbose: false,
             input_file: input_file.to_string(),
         }
