@@ -87,6 +87,10 @@ implement correctly; XON/XOFF is broken on macOS for binary data.
       `RCVSTAT`/`SNDSTAT "COM1:",28,0` on macOS and Linux (file larger than the `INIT`
       buffer, binary with 0x11/0x13); `put --no-flowcontrol`; CTS wire disconnected →
       PC-1600 hangs in `LOAD`, sde fails after ~5 s with the cable hint.
+  - [x] 2026-10-10, macOS: `put --device pc1600` (RTS/CTS, unpaced) of a 54603-byte
+        file with `INIT "COM1:",1024` and `RCVSTAT "COM1:",28,0` loaded perfectly.
+        (A first try without `--device pc1600` sent a headerless file as `pc1500`,
+        19200 baud → immediate `ERROR 142`; user error, not flow control.)
 - [x] RTS/CTS is the default for `--device pc1600` again (`--no-flowcontrol` opts out
       and paces); `--flowcontrol` removed. `pc1600emul` / PC-1500 unchanged.
 - [x] Clear error when CTS never asserts (stall-tolerant write + progress-based drain,
