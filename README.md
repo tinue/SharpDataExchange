@@ -1199,8 +1199,9 @@ tested against an in-memory transport double (no real hardware needed to run
 macOS, and port auto-detection on macOS. Still untested: real PC-1500/CE-158X
 transfers, and port auto-detection on Windows and Linux.
 
-Releases are cut with [`bin/release`](bin/release); see the comment header in
-that script and [`CHANGELOG.md`](CHANGELOG.md).
+Releases are cut with the `release` command from
+[ReleaseIt](https://github.com/tinue/ReleaseIt), configured in
+[`release.yaml`](release.yaml); see also [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

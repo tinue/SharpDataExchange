@@ -9,6 +9,5 @@
 # Device files copied off a PC-1600 disk: CRLF and the 1A end byte are the content.
 *.PUN binary
 
-# Shell scripts and the release helper stay LF and executable.
+# Shell scripts stay LF and executable.
 *.sh text eol=lf
-bin/release text eol=lf

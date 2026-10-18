@@ -6,7 +6,7 @@ breaking changes in every release, major or minor, until version 1.0.0 is reache
 (the C ABI and the Rust API included); from 1.0.0 on it follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-`bin/release` reads the section for the version being released and uses it as the
+The `release` command ([ReleaseIt](https://github.com/tinue/ReleaseIt)) reads the section for the version being released and uses it as the
 GitHub release notes, so keep entries user-facing.
 
 ## [Unreleased]

@@ -1,11 +1,12 @@
 name: Release
 
 # Triggered by pushing a "vX.Y.Z-pre" tag: builds every platform and publishes
-# a GitHub *pre-release* (disposable, re-runnable; see bin/release).
+# a GitHub *pre-release* (disposable, re-runnable; see release.yaml and the
+# `release` command from ReleaseIt).
 #
-# The real "vX.Y.Z" release is never built here: `bin/release --release`
-# promotes the pre-release's already-built assets to the real tag directly via
-# `gh release create`, without pushing a tag that would trigger this workflow
+# The real "vX.Y.Z" release is never built here: `release --release`
+# retargets the pre-release (and its already-built assets) onto the real tag
+# in place via `gh release edit --tag`, without pushing a tag that would trigger this workflow
 # again — the pre-release build already is the release build. Use
 # workflow_dispatch with a real tag only to force a rebuild (e.g. recovering
 # from a botched promotion).
