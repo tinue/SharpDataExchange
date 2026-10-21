@@ -101,7 +101,10 @@ create new ones in the developer portal (`renew-certs guide`), then run
 `APPLE_CERT_P12_PASSWORD`. Run it in Calc-U-1600 too; it uses the same pair.
 It also records the uploaded certificates as the repo
 variables `APPLE_CERT_{APPLICATION,INSTALLER}_{SHA1,EXPIRES}`;
-`renew-certs status` reports them and their expiry.
+`renew-certs status` reports them and their expiry. The `.p12` password is random per
+run and kept nowhere else; if a secret breaks, run `apply` again. Back the
+certificates themselves up with `renew-certs backup` (1Password, Private
+vault; restore by double-clicking the attached `.p12`).
 
 The App Store Connect API key doesn't expire. For a new one, replace the `.p8`
 secret plus `APPLE_API_KEY_ID` / `APPLE_API_ISSUER_ID`.
