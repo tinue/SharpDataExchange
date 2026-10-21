@@ -95,10 +95,11 @@ keep the `.p8` backed up — it can't be re-downloaded).
 
 Developer ID certs from the G2 Sub-CA are valid only ~13 months. Each year:
 create new ones in the developer portal (`renew-certs guide`), then run
-`renew-certs apply`. It exports them from the keychain, checks them, and sets
+`renew-certs apply` in the repo root (team ID from the `certs:` section of
+`release.yaml`). It exports them from the keychain, checks them, and sets
 `APPLE_CERT_APPLICATION_P12_BASE64`, `APPLE_CERT_INSTALLER_P12_BASE64` and
-`APPLE_CERT_P12_PASSWORD` here and in every other repo listed in
-`~/.config/releaseit/certs.yaml`. It also records the uploaded certificates as the repo
+`APPLE_CERT_P12_PASSWORD`. Run it in Calc-U-1600 too; it uses the same pair.
+It also records the uploaded certificates as the repo
 variables `APPLE_CERT_{APPLICATION,INSTALLER}_{SHA1,EXPIRES}`;
 `renew-certs status` reports them and their expiry.
 
