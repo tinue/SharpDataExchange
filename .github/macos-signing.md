@@ -19,9 +19,10 @@ Team ID `7Q3QN9AV9J`. Bundle identifier `ch.erzberger.SharpDataExchange`.
 The repo already has a *Developer ID Application* cert; a `.pkg` also needs a
 *Developer ID Installer* cert.
 
-**Xcode:** Settings → Accounts → your Apple ID (team `7Q3QN9AV9J`) → *Manage
-Certificates…* → **+** → **Developer ID Installer**. It lands in the **login**
-keychain. Confirm:
+**Developer portal, not Xcode:** create it with the **G2 Sub-CA**, as listed by
+`renew-certs guide` ([ReleaseIt](https://github.com/tinue/ReleaseIt)). Xcode's
+*Manage Certificates* still issued certificates from the original Developer ID
+Sub-CA in October 2026, and those all stop working on 2027-02-01. Confirm:
 
 ```sh
 security find-identity -v | grep "Developer ID Installer"
@@ -49,6 +50,9 @@ Information Exchange (.p12)*. Use the **same** export password for both:
 
 - `DeveloperIDApplication.p12`
 - `DeveloperIDInstaller.p12`
+
+`renew-certs apply` does this export itself and sets the two `_P12_BASE64`
+secrets and `APPLE_CERT_P12_PASSWORD` (see *Rotating*).
 
 ### 3. App Store Connect API key (for notarization)
 
@@ -89,8 +93,16 @@ keep the `.p8` backed up — it can't be re-downloaded).
 
 ## Rotating
 
-Certs expire every ~5 years. Re-export the `.p12`, re-run the two
-`gh secret set … _P12_BASE64` commands. For a new API key, replace the `.p8`
+Developer ID certs from the G2 Sub-CA are valid only ~13 months. Each year:
+create new ones in the developer portal (`renew-certs guide`), then run
+`renew-certs apply`. It exports them from the keychain, checks them, and sets
+`APPLE_CERT_APPLICATION_P12_BASE64`, `APPLE_CERT_INSTALLER_P12_BASE64` and
+`APPLE_CERT_P12_PASSWORD` here and in every other repo listed in
+`~/.config/releaseit/certs.yaml`. It also records the uploaded certificates as the repo
+variables `APPLE_CERT_{APPLICATION,INSTALLER}_{SHA1,EXPIRES}`;
+`renew-certs status` reports them and their expiry.
+
+The App Store Connect API key doesn't expire. For a new one, replace the `.p8`
 secret plus `APPLE_API_KEY_ID` / `APPLE_API_ISSUER_ID`.
 
 ## Local dry run (no secrets)
