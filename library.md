@@ -1,6 +1,6 @@
 # Embedding `libsharpdx`
 
-`libsharpdx` is the pure core of [SharpDataExchange](README.md) with no file I/O,
+`libsharpdx` is the pure core of [Sharp-Data-Exchange](README.md) with no file I/O,
 packaged for embedding in another application — for example **Calc-U-1600**. It
 tokenizes and de-tokenizes Sharp PC-1500 / PC-1600 BASIC, lists, reads, writes
 and deletes files on a CE-1600F floppy side, and decodes and encodes cassette-tape
@@ -281,7 +281,7 @@ module target. See [`examples/embed_swift.swift`](examples/embed_swift.swift).
 
 ```toml
 [dependencies]
-sharpdx = { git = "https://github.com/tinue/SharpDataExchange", default-features = false }
+sharpdx = { git = "https://github.com/tinue/Sharp-Data-Exchange", default-features = false }
 ```
 
 `default-features = false` drops the `cli` feature (the `sde` binary's `clap`) and

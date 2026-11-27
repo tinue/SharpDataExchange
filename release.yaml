@@ -7,7 +7,7 @@
 # binaries and builds a notarized .pkg; it needs the APPLE_* repo secrets
 # described in .github/macos-signing.md.
 
-name: SharpDataExchange
+name: Sharp-Data-Exchange
 
 version:
   preset: cargo
@@ -15,7 +15,7 @@ version:
 changelog:
   wip_marker: WIP
   insert_next: after-unreleased
-  compare_links: https://github.com/tinue/SharpDataExchange
+  compare_links: https://github.com/tinue/Sharp-Data-Exchange
 
 next:
   bump: patch

@@ -61,9 +61,9 @@ fn reencode_rom_recordings() {
 fn corpus_sweep() {
     let home = std::env::var("HOME").unwrap();
     let dirs = [
-        format!("{home}/Development/sharp/pc1500/Downloaded"),
-        format!("{home}/Development/sharp/Calc-U-1600/headless/tape-matrix"),
-        format!("{home}/Development/sharp/SharpWavAnalysis"),
+        format!("{home}/Development/sharp/PC-1600/PC-1500-Material/Downloaded"),
+        format!("{home}/Development/calc-u/Calc-U-1600/headless/tape-matrix"),
+        format!("{home}/Development/sharp/common/Sharp-WAV-Analysis"),
     ];
     let mut wavs = Vec::new();
     for d in &dirs {

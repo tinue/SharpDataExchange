@@ -12,7 +12,7 @@
 //!   `info`, de-tokenizing, `put` and disk images work on tape files unchanged.
 //!
 //! Formats, as verified against ROM-made recordings (Calc-U-1600 `CSAVE`) and the
-//! CE-150 / CE-1600P ROMs, are documented in `Sharp1500-1600-Ref`
+//! CE-150 / CE-1600P ROMs, are documented in `PC-1600-Ref`
 //! `Shared/Data-Formats/WAV-Cassette-Format-1500-1600.md` and in [`pc1500`] / [`pc1600`].
 
 mod demod;

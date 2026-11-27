@@ -1,4 +1,4 @@
-# SharpDataExchange (`sde`)
+# Sharp-Data-Exchange (`sde`)
 
 Transfer BASIC programs and machine-language code to/from a Sharp PC-1500 /
 PC-1500A / PC-1600 pocket computer over serial, read and write files on
@@ -260,7 +260,7 @@ inserted disk in memory and rewrites its file shortly after every disk access, w
 would silently undo sde's changes.
 
 The container format is specified in Calc-U-1600's `docs/Floppy-Image-Format.md`; the
-filesystem inside a side is Sharp's (see the `Sharp1500-1600-Ref` corpus,
+filesystem inside a side is Sharp's (see the `PC-1600-Ref` corpus,
 `PC-1600-Filesystem.md` §5).
 
 ### Cassette WAV files
@@ -755,7 +755,7 @@ Start `sde get` **first**, then issue the save command on the PC-1500:
 
 Machine language is always saved with `CSAVE M`, giving the start/end addresses
 of the memory block to send. See [`CSAVE M` in the CE-150
-reference](https://github.com/tinue/SharpBasicReference/blob/main/CE-150-Reference.md#csave-m--save-machine-language)
+reference](https://github.com/tinue/Sharp-BASIC-Ref/blob/main/CE-150-Reference.md#csave-m--save-machine-language)
 for the full syntax.
 
 ### Sharp PC-1600
